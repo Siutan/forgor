@@ -45,11 +45,47 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runQuery(args[0])
 	},
+	CompletionOptions: cobra.CompletionOptions{
+		DisableDefaultCmd: true,
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 func Execute() error {
 	return rootCmd.Execute()
+}
+
+// setupCompletions configures custom completion functions for flags
+func setupCompletions() {
+	// Profile completion - complete with available profiles from config
+	rootCmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		cfg, err := config.Load()
+		if err != nil {
+			// Return common defaults if config loading fails
+			return []string{"default", "openai", "anthropic", "gemini"}, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		var profiles []string
+		for name := range cfg.Profiles {
+			profiles = append(profiles, name)
+		}
+		// Always include "default" as an option
+		if cfg.DefaultProfile != "" && cfg.DefaultProfile != "default" {
+			profiles = append(profiles, "default")
+		}
+
+		return profiles, cobra.ShellCompDirectiveNoFileComp
+	})
+
+	// Format completion - complete with valid output formats
+	rootCmd.RegisterFlagCompletionFunc("format", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"plain", "json"}, cobra.ShellCompDirectiveNoFileComp
+	})
+
+	// History completion - suggest reasonable values
+	rootCmd.RegisterFlagCompletionFunc("history", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"0", "1", "2", "3", "5", "10"}, cobra.ShellCompDirectiveNoFileComp
+	})
 }
 
 func init() {
@@ -70,6 +106,9 @@ func init() {
 
 	// Execution flags (uppercase for potentially unsafe operations)
 	rootCmd.Flags().BoolVarP(&forceRun, "force-run", "R", false, "immediately run the generated command (DANGEROUS)")
+
+	// Set up custom completions
+	setupCompletions()
 
 	// Bind flags to viper
 	viper.BindPFlag("profile", rootCmd.Flags().Lookup("profile"))

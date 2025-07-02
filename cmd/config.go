@@ -2,6 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"forgor/internal/config"
 	"forgor/internal/llm"
@@ -187,12 +191,239 @@ var configListProvidersCmd = &cobra.Command{
 	},
 }
 
+// configCompletionCmd represents the config completion command
+var configCompletionCmd = &cobra.Command{
+	Use:   "completion [shell]",
+	Short: "Setup shell completion automatically",
+	Long: `Automatically setup shell completion by adding the necessary lines to your shell configuration.
+
+Supported shells: bash, zsh, fish
+
+If no shell is specified, it will auto-detect your current shell.
+
+Examples:
+  forgor config completion         # Auto-detect and setup for current shell
+  forgor config completion zsh     # Setup for zsh specifically
+  forgor config completion bash    # Setup for bash specifically`,
+	ValidArgs: []string{"bash", "zsh", "fish"},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		var targetShell string
+
+		if len(args) > 0 {
+			targetShell = args[0]
+		} else {
+			// Auto-detect shell
+			shell := os.Getenv("SHELL")
+			if shell == "" {
+				return fmt.Errorf("could not detect shell. Please specify shell explicitly: forgor config completion [bash|zsh|fish]")
+			}
+			targetShell = filepath.Base(shell)
+		}
+
+		// Validate shell
+		switch targetShell {
+		case "bash", "zsh", "fish":
+			// supported
+		default:
+			return fmt.Errorf("unsupported shell: %s. Supported shells: bash, zsh, fish", targetShell)
+		}
+
+		fmt.Printf("🚀 Setting up %s completion for forgor...\n\n", targetShell)
+
+		return setupShellCompletion(targetShell)
+	},
+}
+
+func setupShellCompletion(shell string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("could not get home directory: %w", err)
+	}
+
+	switch shell {
+	case "bash":
+		return setupBashCompletion(homeDir)
+	case "zsh":
+		return setupZshCompletion(homeDir)
+	case "fish":
+		return setupFishCompletion(homeDir)
+	default:
+		return fmt.Errorf("unsupported shell: %s", shell)
+	}
+}
+
+func setupBashCompletion(homeDir string) error {
+	configFile := filepath.Join(homeDir, ".bashrc")
+
+	// Check if .bash_profile exists and .bashrc doesn't, use .bash_profile instead (common on macOS)
+	if _, err := os.Stat(configFile); os.IsNotExist(err) {
+		profileFile := filepath.Join(homeDir, ".bash_profile")
+		if _, err := os.Stat(profileFile); err == nil {
+			configFile = profileFile
+		}
+	}
+
+	// Create completion file
+	completionDir := filepath.Join(homeDir, ".config", "forgor")
+	if err := os.MkdirAll(completionDir, 0755); err != nil {
+		return fmt.Errorf("failed to create completion directory: %w", err)
+	}
+
+	completionFile := filepath.Join(completionDir, "completion.bash")
+	file, err := os.Create(completionFile)
+	if err != nil {
+		return fmt.Errorf("failed to create completion file: %w", err)
+	}
+	defer file.Close()
+
+	// Generate completion script directly using Cobra
+	if err := rootCmd.GenBashCompletion(file); err != nil {
+		return fmt.Errorf("failed to generate bash completion: %w", err)
+	}
+
+	// Add sourcing line to shell config
+	completionLine := fmt.Sprintf(`# forgor shell completion
+if [ -f "%s" ]; then
+    source "%s"
+fi`, completionFile, completionFile)
+
+	return addCompletionToFile(configFile, completionLine, "bash")
+}
+
+func setupZshCompletion(homeDir string) error {
+	configFile := filepath.Join(homeDir, ".zshrc")
+
+	// Create completion file
+	completionDir := filepath.Join(homeDir, ".config", "forgor")
+	if err := os.MkdirAll(completionDir, 0755); err != nil {
+		return fmt.Errorf("failed to create completion directory: %w", err)
+	}
+
+	completionFile := filepath.Join(completionDir, "completion.zsh")
+	file, err := os.Create(completionFile)
+	if err != nil {
+		return fmt.Errorf("failed to create completion file: %w", err)
+	}
+	defer file.Close()
+
+	// Generate completion script directly using Cobra
+	if err := rootCmd.GenZshCompletion(file); err != nil {
+		return fmt.Errorf("failed to generate zsh completion: %w", err)
+	}
+
+	// Add sourcing line to shell config
+	completionLine := fmt.Sprintf(`# forgor shell completion
+if [ -f "%s" ]; then
+    source "%s"
+fi`, completionFile, completionFile)
+
+	return addCompletionToFile(configFile, completionLine, "zsh")
+}
+
+func setupFishCompletion(homeDir string) error {
+	// Fish uses a different approach - we create a completion file
+	fishConfigDir := filepath.Join(homeDir, ".config", "fish", "completions")
+
+	// Create directory if it doesn't exist
+	if err := os.MkdirAll(fishConfigDir, 0755); err != nil {
+		return fmt.Errorf("failed to create fish completions directory: %w", err)
+	}
+
+	completionFile := filepath.Join(fishConfigDir, "forgor.fish")
+
+	// Create completion file
+	file, err := os.Create(completionFile)
+	if err != nil {
+		return fmt.Errorf("failed to create completion file: %w", err)
+	}
+	defer file.Close()
+
+	// Generate completion script directly using Cobra
+	if err := rootCmd.GenFishCompletion(file, true); err != nil {
+		return fmt.Errorf("failed to generate fish completion: %w", err)
+	}
+
+	fmt.Printf("✅ Fish completion installed to %s\n", completionFile)
+	fmt.Printf("🔄 Restart your fish shell or run: source %s\n", completionFile)
+
+	return nil
+}
+
+func addCompletionToFile(configFile, completionLines, shell string) error {
+	// Check if completion is already set up
+	if isCompletionAlreadySetup(configFile) {
+		fmt.Printf("✅ forgor completion is already set up in %s\n", configFile)
+		return nil
+	}
+
+	// Create backup
+	backupFile := configFile + ".forgor-backup"
+	if err := copyFile(configFile, backupFile); err == nil {
+		fmt.Printf("📋 Created backup: %s\n", backupFile)
+	}
+
+	// Add completion lines
+	file, err := os.OpenFile(configFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open %s: %w", configFile, err)
+	}
+	defer file.Close()
+
+	_, err = file.WriteString("\n" + completionLines + "\n")
+	if err != nil {
+		return fmt.Errorf("failed to write to %s: %w", configFile, err)
+	}
+
+	fmt.Printf("✅ Added forgor completion to %s\n", configFile)
+	fmt.Printf("🔄 Run 'source %s' or restart your %s shell to enable completion\n", configFile, shell)
+
+	// Try to source the file automatically
+	if shell == "bash" || shell == "zsh" {
+		fmt.Printf("🚀 Attempting to source the file automatically...\n")
+		cmd := exec.Command(shell, "-c", fmt.Sprintf("source %s", configFile))
+		if err := cmd.Run(); err == nil {
+			fmt.Printf("✨ Completion should now be active in your current session!\n")
+		} else {
+			fmt.Printf("⚠️  Could not auto-source. Please restart your shell or run: source %s\n", configFile)
+		}
+	}
+
+	return nil
+}
+
+func isCompletionAlreadySetup(configFile string) bool {
+	if _, err := os.Stat(configFile); os.IsNotExist(err) {
+		return false
+	}
+
+	content, err := os.ReadFile(configFile)
+	if err != nil {
+		return false
+	}
+
+	return strings.Contains(string(content), "forgor completion")
+}
+
+func copyFile(src, dst string) error {
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		return err
+	}
+
+	input, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(dst, input, 0644)
+}
+
 func init() {
 	rootCmd.AddCommand(configCmd)
 	configCmd.AddCommand(configInitCmd)
 	configCmd.AddCommand(configShowCmd)
 	configCmd.AddCommand(configSetDefaultCmd)
 	configCmd.AddCommand(configListProvidersCmd)
+	configCmd.AddCommand(configCompletionCmd)
 }
 
 // min helper function
