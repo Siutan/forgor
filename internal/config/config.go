@@ -97,7 +97,7 @@ func (p *Profile) Validate() error {
 
 	// Provider-specific validation
 	switch p.Provider {
-	case "openai", "anthropic":
+	case "openai", "anthropic", "gemini", "google":
 		if p.APIKey == "" {
 			return fmt.Errorf("api_key is required for %s provider", p.Provider)
 		}
@@ -189,18 +189,25 @@ func getDefaultConfig() *Config {
 				MaxTokens:   150,
 				Temperature: 0.1,
 			},
-			"local": {
-				Provider:  "local",
-				Endpoint:  "http://localhost:11434",
-				Model:     "codellama",
-				MaxTokens: 150,
-			},
 			"anthropic": {
 				Provider:    "anthropic",
 				APIKey:      "${ANTHROPIC_API_KEY}",
 				Model:       "claude-3-sonnet-20240229",
 				MaxTokens:   150,
 				Temperature: 0.1,
+			},
+			"gemini": {
+				Provider:    "gemini",
+				APIKey:      "${GOOGLE_AI_API_KEY}",
+				Model:       "gemini-1.5-pro",
+				MaxTokens:   150,
+				Temperature: 0.1,
+			},
+			"local": {
+				Provider:  "local",
+				Endpoint:  "http://localhost:11434",
+				Model:     "codellama",
+				MaxTokens: 150,
 			},
 		},
 		History: HistoryConfig{
@@ -216,4 +223,30 @@ func getDefaultConfig() *Config {
 			ConfirmBeforeRun: false,
 		},
 	}
+}
+
+// SaveConfig saves the configuration to the config file
+func SaveConfig(config *Config) error {
+	configDir, err := getConfigDir()
+	if err != nil {
+		return fmt.Errorf("failed to get config directory: %w", err)
+	}
+
+	configPath := filepath.Join(configDir, "config.yaml")
+
+	// Validate the configuration before saving
+	if err := config.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
+
+	data, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return nil
 }
