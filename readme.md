@@ -320,6 +320,8 @@ go test ./...
 
 For detailed development information, see the [Development Guide](docs/DEVELOPMENT.md).
 
+Also im skipping priority on windows tests because i use MacOS but if you can help me with that i would be very thankful :)
+
 ---
 
 ## 🤝 Contributing
