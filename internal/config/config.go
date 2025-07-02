@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
@@ -249,4 +250,54 @@ func SaveConfig(config *Config) error {
 	}
 
 	return nil
+}
+
+// SaveLastCommand saves the last generated command to cache
+func SaveLastCommand(command string) error {
+	if command == "" {
+		return nil // Don't save empty commands
+	}
+
+	configDir, err := getConfigDir()
+	if err != nil {
+		return fmt.Errorf("failed to get config directory: %w", err)
+	}
+
+	// Ensure config directory exists
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	cachePath := filepath.Join(configDir, "last_command")
+
+	if err := os.WriteFile(cachePath, []byte(command), 0644); err != nil {
+		return fmt.Errorf("failed to write last command cache: %w", err)
+	}
+
+	return nil
+}
+
+// LoadLastCommand loads the last generated command from cache
+func LoadLastCommand() (string, error) {
+	configDir, err := getConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get config directory: %w", err)
+	}
+
+	cachePath := filepath.Join(configDir, "last_command")
+
+	data, err := os.ReadFile(cachePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("no previous command found. Generate a command first with: forgor \"your query\"")
+		}
+		return "", fmt.Errorf("failed to read last command cache: %w", err)
+	}
+
+	command := strings.TrimSpace(string(data))
+	if command == "" {
+		return "", fmt.Errorf("no previous command found")
+	}
+
+	return command, nil
 }

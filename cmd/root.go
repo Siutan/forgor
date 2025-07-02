@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
 	"forgor/internal/config"
@@ -24,6 +27,7 @@ var (
 	format      string
 	confirm     bool
 	localOnly   bool
+	forceRun    bool
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -36,7 +40,8 @@ and get bash-friendly commands back, powered by an LLM.
 Examples:
   forgor "find all txt files with hello in them"
   ff "show me how to make a new tmux session called dev"
-  ff --history 2 "fix the above command"`,
+  ff --history 2 "fix the above command"
+  ff -R "list all files in current directory"  # Force run the generated command`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runQuery(args[0])
@@ -63,6 +68,9 @@ func init() {
 	rootCmd.Flags().StringVarP(&format, "format", "f", "plain", "output format: plain, json")
 	rootCmd.Flags().BoolVarP(&confirm, "confirm", "c", false, "ask for confirmation before showing command")
 	rootCmd.Flags().BoolVar(&localOnly, "local-only", false, "don't send data to external APIs")
+
+	// Execution flags (uppercase for potentially unsafe operations)
+	rootCmd.Flags().BoolVarP(&forceRun, "force-run", "R", false, "immediately run the generated command (DANGEROUS)")
 
 	// Bind flags to viper
 	viper.BindPFlag("profile", rootCmd.Flags().Lookup("profile"))
@@ -194,22 +202,30 @@ func displayResponse(response *llm.Response, isExplanation bool) error {
 		fmt.Printf("📖 Command explanation:\n")
 		fmt.Printf("Command: %s\n\n", response.Command)
 		fmt.Printf("%s\n", response.Explanation)
-	} else {
-		// Display generated command
-		if explain && response.Explanation != "" {
-			fmt.Printf("💡 %s\n\n", response.Explanation)
-		}
+		return nil
+	}
 
-		// Show warnings if any
-		if len(response.Warnings) > 0 {
-			fmt.Printf("⚠️  Warnings:\n")
-			for _, warning := range response.Warnings {
-				fmt.Printf("  • %s\n", warning)
-			}
-			fmt.Println()
-		}
+	// Display generated command
+	if explain && response.Explanation != "" {
+		fmt.Printf("💡 %s\n\n", response.Explanation)
+	}
 
-		fmt.Printf("%s\n", response.Command)
+	// Show warnings if any
+	if len(response.Warnings) > 0 {
+		fmt.Printf("⚠️  Warnings:\n")
+		for _, warning := range response.Warnings {
+			fmt.Printf("  • %s\n", warning)
+		}
+		fmt.Println()
+	}
+
+	fmt.Printf("%s\n", response.Command)
+
+	// Save the command to cache for later use with 'forgor run'
+	if response.Command != "" {
+		if err := config.SaveLastCommand(response.Command); err != nil && verbose {
+			fmt.Printf("Warning: Failed to cache command: %v\n", err)
+		}
 	}
 
 	// Show confidence and usage info in verbose mode
@@ -223,7 +239,120 @@ func displayResponse(response *llm.Response, isExplanation bool) error {
 		}
 	}
 
+	// Handle command execution
+	if forceRun {
+		fmt.Printf("\n🚀 Executing command...\n")
+		return executeCommand(response.Command, response.Warnings)
+	}
+
+	// Offer to run the command
+	if !isExplanation && response.Command != "" {
+		fmt.Printf("\n💡 Run this command? Use 'forgor run' or 'ff -R \"%s\"'\n",
+			response.Command)
+	}
+
 	return nil
+}
+
+// executeCommand runs a shell command with safety checks
+func executeCommand(command string, warnings []string) error {
+	if command == "" {
+		return fmt.Errorf("no command to execute")
+	}
+
+	// Safety checks
+	if isDangerousCommand(command) {
+		fmt.Printf("⚠️  DANGEROUS COMMAND DETECTED!\n")
+		fmt.Printf("Command: %s\n", command)
+
+		if !forceRun {
+			fmt.Printf("This command may be destructive. Continue? (type 'yes' to confirm): ")
+
+			reader := bufio.NewReader(os.Stdin)
+			response, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("failed to read confirmation: %w", err)
+			}
+
+			if strings.TrimSpace(strings.ToLower(response)) != "yes" {
+				fmt.Printf("❌ Command execution cancelled\n")
+				return nil
+			}
+		} else {
+			fmt.Printf("⚠️  Force execution enabled - proceeding with dangerous command\n")
+		}
+	} else if !forceRun {
+		// For non-dangerous commands, still ask for confirmation unless forced
+		fmt.Printf("Execute: %s\n", command)
+		fmt.Printf("Continue? [Y/n]: ")
+
+		reader := bufio.NewReader(os.Stdin)
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read confirmation: %w", err)
+		}
+
+		response = strings.TrimSpace(strings.ToLower(response))
+		if response != "" && response != "y" && response != "yes" {
+			fmt.Printf("❌ Command execution cancelled\n")
+			return nil
+		}
+	}
+
+	// Show warnings again before execution
+	if len(warnings) > 0 {
+		fmt.Printf("⚠️  Final warnings:\n")
+		for _, warning := range warnings {
+			fmt.Printf("  • %s\n", warning)
+		}
+		fmt.Println()
+	}
+
+	// Execute the command
+	fmt.Printf("⚡ Executing: %s\n", command)
+	fmt.Println("─────────────────────────────────────")
+
+	cmd := exec.Command(utils.GetCurrentShell(), "-c", command)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	err := cmd.Run()
+	fmt.Println("─────────────────────────────────────")
+
+	if err != nil {
+		fmt.Printf("❌ Command failed: %v\n", err)
+		return err
+	}
+
+	fmt.Printf("✅ Command completed successfully\n")
+	return nil
+}
+
+// isDangerousCommand checks if a command is potentially destructive
+func isDangerousCommand(command string) bool {
+	dangerousPatterns := []string{
+		"rm -rf", "rm -fr", "rm -r", "rm -f",
+		"sudo rm", "sudo delete", "sudo dd",
+		"mkfs", "fdisk", "parted",
+		"shutdown", "reboot", "halt",
+		"chmod 777", "chmod -R 777",
+		"chown -R", "find . -delete", "find / -delete",
+		"> /dev/", "dd if=", "dd of=",
+		"curl.*|.*sh", "wget.*|.*sh", "curl.*|.*bash", "wget.*|.*bash",
+		":(){ :|:& };:", // fork bomb
+		"mv /*", "cp /* ",
+		"truncate", "shred",
+	}
+
+	command = strings.ToLower(command)
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(command, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // initConfig reads in config file and ENV variables if set.
