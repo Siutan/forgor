@@ -81,7 +81,7 @@ func (p *AnthropicProvider) GenerateCommand(ctx context.Context, request *Reques
 	anthropicReq := anthropicRequest{
 		Model:     p.model,
 		MaxTokens: request.Options.MaxTokens,
-		System:    getSystemPrompt(request.Context.OS, request.Context.Shell),
+		System:    getSystemPrompt(request.Context),
 		Messages: []anthropicMessage{
 			{
 				Role:    "user",

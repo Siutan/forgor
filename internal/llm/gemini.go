@@ -115,7 +115,7 @@ func (p *GeminiProvider) GenerateCommand(ctx context.Context, request *Request) 
 		},
 		SystemInstruction: &geminiSystemInstruction{
 			Parts: []geminiPart{
-				{Text: getSystemPrompt(request.Context.OS, request.Context.Shell)},
+				{Text: getSystemPrompt(request.Context)},
 			},
 		},
 		GenerationConfig: &geminiGenerationConfig{

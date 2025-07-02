@@ -83,7 +83,7 @@ func (p *OpenAIProvider) GenerateCommand(ctx context.Context, request *Request) 
 		Messages: []openAIMessage{
 			{
 				Role:    "system",
-				Content: getSystemPrompt(request.Context.OS, request.Context.Shell),
+				Content: getSystemPrompt(request.Context),
 			},
 			{
 				Role:    "user",
@@ -391,21 +391,65 @@ func (p *OpenAIProvider) handleAPIError(resp *resty.Response, apiResp *openAIRes
 }
 
 // getSystemPrompt returns the system prompt for command generation
-func getSystemPrompt(os, shell string) string {
-	return fmt.Sprintf(`You are a helpful shell command assistant. Convert natural language requests into safe, executable shell commands for %s using %s.
+func getSystemPrompt(context Context) string {
+	basePrompt := fmt.Sprintf(`You are a helpful shell command assistant. Convert natural language requests into safe, executable shell commands for %s using %s.
+
+System Information:
+- OS: %s (%s architecture)
+- Shell: %s
+- User: %s
+- Working Directory: %s`, context.OS, context.Shell, context.OS, context.Architecture, context.Shell, context.User, context.WorkingDirectory)
+
+	// Add tool context if available
+	if context.ToolsSummary != "" {
+		basePrompt += fmt.Sprintf(`
+- Available Tools: %s`, context.ToolsSummary)
+	}
+
+	// Add package managers if available
+	if len(context.PackageManagers) > 0 {
+		basePrompt += fmt.Sprintf(`
+- Package Managers: %s`, strings.Join(context.PackageManagers, ", "))
+	}
+
+	// Add programming languages if available
+	if len(context.Languages) > 0 {
+		basePrompt += fmt.Sprintf(`
+- Programming Languages: %s`, strings.Join(context.Languages, ", "))
+	}
+
+	// Add container tools if available
+	if len(context.ContainerTools) > 0 {
+		basePrompt += fmt.Sprintf(`
+- Container Tools: %s`, strings.Join(context.ContainerTools, ", "))
+	}
+
+	// Add cloud tools if available
+	if len(context.CloudTools) > 0 {
+		basePrompt += fmt.Sprintf(`
+- Cloud Tools: %s`, strings.Join(context.CloudTools, ", "))
+	}
+
+	basePrompt += `
 
 Rules:
 1. Return only the command, no extra text or formatting
 2. Ensure commands are safe and won't cause system damage
 3. Use appropriate flags and options for the target OS and shell
-4. Prefer standard commands that are widely available
-5. If the request is unclear, make reasonable assumptions
+4. Prefer tools and commands that are actually available on this system
+5. Take advantage of available package managers, languages, and tools when relevant
+6. If the request is unclear, make reasonable assumptions based on the available tools
+7. Consider the user's environment and available capabilities when generating commands
 
 Examples:
 - "find all txt files" → find . -name "*.txt"
 - "show disk usage" → df -h
 - "list running processes" → ps aux
 - "compress this folder" → tar -czf archive.tar.gz .
+- "install package" → use appropriate package manager (brew, apt, yum, etc.)
+- "run container" → use docker, podman, or available container runtime
 
-Remember: Safety first - avoid destructive operations unless explicitly requested.`, os, shell)
+Remember: Safety first - avoid destructive operations unless explicitly requested. Use tools that are actually available on this system.`
+
+	return basePrompt
 }

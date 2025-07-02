@@ -44,6 +44,45 @@ type Context struct {
 
 	// Additional context from user
 	UserContext string `json:"user_context,omitempty"`
+
+	// System architecture
+	Architecture string `json:"architecture,omitempty"`
+
+	// User information
+	User string `json:"user,omitempty"`
+
+	// Home directory
+	HomeDirectory string `json:"home_directory,omitempty"`
+
+	// Available package managers
+	PackageManagers []string `json:"package_managers,omitempty"`
+
+	// Available programming languages
+	Languages []string `json:"languages,omitempty"`
+
+	// Available development tools
+	DevelopmentTools []string `json:"development_tools,omitempty"`
+
+	// Available container tools
+	ContainerTools []string `json:"container_tools,omitempty"`
+
+	// Available cloud tools
+	CloudTools []string `json:"cloud_tools,omitempty"`
+
+	// Available database tools
+	DatabaseTools []string `json:"database_tools,omitempty"`
+
+	// Available network tools
+	NetworkTools []string `json:"network_tools,omitempty"`
+
+	// Tool availability map for quick lookups
+	ToolsAvailable map[string]bool `json:"tools_available,omitempty"`
+
+	// Tool context summary for prompts
+	ToolsSummary string `json:"tools_summary,omitempty"`
+
+	// Relevant environment variables
+	Environment map[string]string `json:"environment,omitempty"`
 }
 
 // RequestOptions contains options for the request

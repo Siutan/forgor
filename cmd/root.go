@@ -122,14 +122,15 @@ func runQuery(query string) error {
 
 	// Build request context
 	ctx := context.Background()
+
+	// Build enhanced context with tool detection
+	requestContext := llm.BuildContextFromSystem()
+	// TODO: Add command history when implemented
+	requestContext = llm.EnhanceContextWithHistory(requestContext, []string{})
+
 	request := &llm.Request{
-		Query: query,
-		Context: llm.Context{
-			OS:               utils.GetOperatingSystem(),
-			Shell:            utils.GetCurrentShell(),
-			WorkingDirectory: utils.GetWorkingDirectory(),
-			History:          []string{}, // TODO: Implement history reading
-		},
+		Query:   query,
+		Context: requestContext,
 		Options: llm.RequestOptions{
 			MaxTokens:          150,
 			Temperature:        0.1,
@@ -149,8 +150,11 @@ func runQuery(query string) error {
 	}
 
 	if verbose {
-		fmt.Printf("🌍 Context: %s on %s in %s\n",
-			request.Context.Shell, request.Context.OS, request.Context.WorkingDirectory)
+		fmt.Printf("🌍 Context: %s on %s (%s) in %s\n",
+			request.Context.Shell, request.Context.OS, request.Context.Architecture, request.Context.WorkingDirectory)
+		if request.Context.ToolsSummary != "" {
+			fmt.Printf("🔧 Tools: %s\n", request.Context.ToolsSummary)
+		}
 	}
 
 	// Add timeout
