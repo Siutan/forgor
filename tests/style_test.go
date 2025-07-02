@@ -1,13 +1,15 @@
-package utils
+package tests
 
 import (
 	"strings"
 	"testing"
+
+	"forgor/internal/utils"
 )
 
 func TestStyled(t *testing.T) {
 	text := "test"
-	styled := Styled(text, StyleSuccess)
+	styled := utils.Styled(text, utils.StyleSuccess)
 
 	// Should contain the original text
 	if !strings.Contains(styled, text) {
@@ -25,7 +27,7 @@ func TestStatusIcon(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		result := StatusIcon(test.success)
+		result := utils.StatusIcon(test.success)
 		// The result includes styling, so we just check it contains the expected text
 		if !strings.Contains(result, test.expectedText) {
 			t.Errorf("StatusIcon(%v) should contain %s, got %s", test.success, test.expectedText, result)
@@ -46,7 +48,7 @@ func TestDangerIcon(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		result := DangerIcon(test.level)
+		result := utils.DangerIcon(test.level)
 		// The result includes styling, so we just check it contains the expected text
 		if !strings.Contains(result, test.expectedText) {
 			t.Errorf("DangerIcon(%s) should contain %s, got %s", test.level, test.expectedText, result)
@@ -68,7 +70,7 @@ func TestTruncate(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		result := Truncate(test.text, test.maxLen)
+		result := utils.Truncate(test.text, test.maxLen)
 		if result != test.expected {
 			t.Errorf("Truncate(%s, %d) = %s; want %s", test.text, test.maxLen, result, test.expected)
 		}
@@ -77,7 +79,7 @@ func TestTruncate(t *testing.T) {
 
 func TestIndent(t *testing.T) {
 	text := "line1\nline2\nline3"
-	indented := Indent(text, 2)
+	indented := utils.Indent(text, 2)
 
 	lines := strings.Split(indented, "\n")
 	for i, line := range lines {
@@ -89,7 +91,7 @@ func TestIndent(t *testing.T) {
 
 func TestHeader(t *testing.T) {
 	title := "Test Header"
-	header := Header(title, StyleInfo)
+	header := utils.Header(title, utils.StyleInfo)
 
 	if !strings.Contains(header, title) {
 		t.Errorf("Header should contain title '%s'", title)
@@ -98,7 +100,7 @@ func TestHeader(t *testing.T) {
 
 func TestSimpleBox(t *testing.T) {
 	content := "test content"
-	box := SimpleBox(content, StyleInfo)
+	box := utils.SimpleBox(content, utils.StyleInfo)
 
 	if !strings.Contains(box, content) {
 		t.Errorf("Box should contain content '%s'", content)
@@ -112,7 +114,7 @@ func TestSimpleBox(t *testing.T) {
 
 func TestDivider(t *testing.T) {
 	title := "Test Section"
-	divider := Divider(title, StyleInfo)
+	divider := utils.Divider(title, utils.StyleInfo)
 
 	if !strings.Contains(divider, title) {
 		t.Errorf("Divider should contain title '%s'", title)

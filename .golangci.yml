@@ -1,34 +1,34 @@
+version: "2"
+
 run:
   timeout: 5m
   tests: true
 
 output:
-  format: colored-line-number
-
-linters-settings:
-  gofmt:
-    simplify: true
-  goimports:
-    local-prefixes: forgor
-  govet:
-    check-shadowing: true
-  misspell:
-    locale: US
+  formats:
+    text:
+      print-linter-name: true
+      print-issued-lines: true
+      colors: true
 
 linters:
   enable:
-    - gofmt
-    - goimports
     - govet
     - misspell
     - ineffassign
     - unused
-    - typecheck
     - errcheck
-  disable-all: false
+  exclusions:
+    warn-unused: true
+    paths-except:
+      - ./tests/*.go
 
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    warn-unused: true
+
+
+

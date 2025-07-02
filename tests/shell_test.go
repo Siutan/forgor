@@ -1,12 +1,14 @@
-package utils
+package tests
 
 import (
 	"runtime"
 	"testing"
+
+	"forgor/internal/utils"
 )
 
 func TestGetOperatingSystem(t *testing.T) {
-	os := GetOperatingSystem()
+	os := utils.GetOperatingSystem()
 
 	// Should return one of the expected values
 	validOS := []string{"Linux", "macOS", "Windows", "Unknown"}
@@ -66,7 +68,7 @@ func TestNormalizeShellName(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		result := NormalizeShellName(test.input)
+		result := utils.NormalizeShellName(test.input)
 		if result != test.expected {
 			t.Errorf("NormalizeShellName(%s) = %s; want %s", test.input, result, test.expected)
 		}
@@ -90,7 +92,7 @@ func TestIsShellSupported(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		result := IsShellSupported(test.shell)
+		result := utils.IsShellSupported(test.shell)
 		if result != test.expected {
 			t.Errorf("IsShellSupported(%s) = %v; want %v", test.shell, result, test.expected)
 		}
@@ -98,7 +100,7 @@ func TestIsShellSupported(t *testing.T) {
 }
 
 func TestGetWorkingDirectory(t *testing.T) {
-	wd := GetWorkingDirectory()
+	wd := utils.GetWorkingDirectory()
 
 	if wd == "" {
 		t.Error("GetWorkingDirectory() should not return empty string")
