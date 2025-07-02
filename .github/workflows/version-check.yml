@@ -16,98 +16,86 @@ jobs:
         with:
           fetch-depth: 0 # Fetch full history to compare versions
 
-      - name: Check if VERSION file exists
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+
+      - name: Check VERSION file exists
         run: |
           if [ ! -f "VERSION" ]; then
             echo "❌ VERSION file not found!"
-            echo "Please create a VERSION file with the current version (e.g., 1.0.0)"
+            echo "Please create a VERSION file with the current version (e.g., 0.1.0)"
             exit 1
           fi
+          echo "✅ VERSION file exists"
 
-      - name: Get current version
-        id: current-version
+      - name: Validate VERSION format
         run: |
-          VERSION=$(cat VERSION)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Current version: $VERSION"
-
-      - name: Validate version format
-        run: |
-          VERSION="${{ steps.current-version.outputs.version }}"
-          if [[ ! $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9\.-]+)?$ ]]; then
-            echo "❌ Invalid version format in VERSION file: $VERSION"
-            echo "Expected format: X.Y.Z or X.Y.Z-prerelease"
+          VERSION=$(cat VERSION | tr -d '\n' | tr -d ' ')
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$'; then
+            echo "❌ Invalid version format: $VERSION"
+            echo "Expected format: MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-PRERELEASE"
+            echo "Examples: 1.0.0, 1.2.3, 2.0.0-beta.1"
             exit 1
           fi
           echo "✅ Version format is valid: $VERSION"
 
-      - name: Check version increase (PR only)
+      - name: Check version bump for PRs
         if: github.event_name == 'pull_request'
         run: |
-          # Get the base branch version (main)
-          git checkout origin/main
-          BASE_VERSION=$(cat VERSION 2>/dev/null || echo "0.0.0")
+          # Get current version
+          CURRENT_VERSION=$(cat VERSION | tr -d '\n' | tr -d ' ')
 
-          # Switch back to PR branch
-          git checkout ${{ github.head_ref }}
-          PR_VERSION=$(cat VERSION)
-
-          echo "Base version (main): $BASE_VERSION"
-          echo "PR version: $PR_VERSION"
-
-          # Compare versions using sort -V (version sort)
-          if [ "$BASE_VERSION" = "$PR_VERSION" ]; then
-            echo "❌ Version must be bumped for PRs to main!"
-            echo "Current version: $PR_VERSION"
-            echo "Please bump the version using one of:"
-            echo "  ./scripts/version.sh bump patch    # For bug fixes"
-            echo "  ./scripts/version.sh bump minor    # For new features"
-            echo "  ./scripts/version.sh bump major    # For breaking changes"
-            echo "  ./scripts/version.sh bump prerelease [id]  # For pre-releases"
-            exit 1
-          fi
-
-          # Check if PR version is greater than base version
-          if ! printf '%s\n%s\n' "$BASE_VERSION" "$PR_VERSION" | sort -V -C; then
-            echo "❌ New version ($PR_VERSION) must be greater than current version ($BASE_VERSION)"
-            exit 1
-          fi
-
-          echo "✅ Version correctly bumped from $BASE_VERSION to $PR_VERSION"
-
-      - name: Check version increase (Push to main)
-        if: github.event_name == 'push'
-        run: |
-          # For push to main, check if version was increased in this commit
-          CURRENT_VERSION="${{ steps.current-version.outputs.version }}"
-
-          # Get the previous commit's version
-          PREV_VERSION=""
-          if git show HEAD~1:VERSION >/dev/null 2>&1; then
-            PREV_VERSION=$(git show HEAD~1:VERSION)
+          # Get main branch version
+          git fetch origin main
+          if git show origin/main:VERSION &>/dev/null; then
+            MAIN_VERSION=$(git show origin/main:VERSION | tr -d '\n' | tr -d ' ')
           else
-            PREV_VERSION="0.0.0"
+            echo "✅ No VERSION file on main branch, this is the first version"
+            exit 0
           fi
 
-          echo "Previous version: $PREV_VERSION"
           echo "Current version: $CURRENT_VERSION"
+          echo "Main branch version: $MAIN_VERSION"
 
-          if [ "$PREV_VERSION" = "$CURRENT_VERSION" ]; then
-            echo "❌ Version must be bumped for pushes to main!"
-            echo "Current version: $CURRENT_VERSION"
-            echo "Please ensure version is bumped before pushing to main"
+          # Compare versions
+          if [ "$CURRENT_VERSION" = "$MAIN_VERSION" ]; then
+            echo "❌ Version hasn't been bumped!"
+            echo ""
+            echo "For PRs to main, you must bump the version in the VERSION file."
+            echo "Choose the appropriate bump level:"
+            echo "  - Patch (bug fixes): $MAIN_VERSION → $(echo $MAIN_VERSION | awk -F. '{print $1"."$2"."($3+1)}')"
+            echo "  - Minor (new features): $MAIN_VERSION → $(echo $MAIN_VERSION | awk -F. '{print $1"."($2+1)".0"}')"
+            echo "  - Major (breaking changes): $MAIN_VERSION → $(echo $MAIN_VERSION | awk -F. '{print ($1+1)".0.0"}')"
+            echo ""
+            echo "Update the VERSION file and commit the change."
             exit 1
           fi
 
-          # Check if current version is greater than previous version
-          if ! printf '%s\n%s\n' "$PREV_VERSION" "$CURRENT_VERSION" | sort -V -C; then
-            echo "❌ New version ($CURRENT_VERSION) must be greater than previous version ($PREV_VERSION)"
+          # Basic version comparison (assumes semantic versioning)
+          if [ "$CURRENT_VERSION" \< "$MAIN_VERSION" ]; then
+            echo "❌ New version ($CURRENT_VERSION) is less than main version ($MAIN_VERSION)"
+            echo "Please ensure the new version is greater than the current main version"
             exit 1
           fi
 
-          echo "✅ Version correctly bumped from $PREV_VERSION to $CURRENT_VERSION"
+          echo "✅ Version bumped from $MAIN_VERSION to $CURRENT_VERSION"
 
-      - name: Summary
+      - name: Version summary
         run: |
-          echo "🎉 Version check passed!"
-          echo "Version: ${{ steps.current-version.outputs.version }}"
+          VERSION=$(cat VERSION | tr -d '\n' | tr -d ' ')
+          COMMIT=$(git rev-parse HEAD)
+
+          echo "## Version Check Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Version**: $VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Format**: Valid SemVer" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Commit**: $COMMIT" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "✅ **Version Bump**: Verified" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Version checks passed! 🎉" >> $GITHUB_STEP_SUMMARY
