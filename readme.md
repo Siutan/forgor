@@ -320,7 +320,7 @@ go test ./...
 
 For detailed development information, see the [Development Guide](docs/DEVELOPMENT.md).
 
-Also im skipping priority on windows tests because i use MacOS but if you can help me with that i would be very thankful :)
+Also the ci tests fail on windows, but i use a mac so i cant really fix it. If you know how to fix it, please do.
 
 ---
 
@@ -338,9 +338,9 @@ We welcome contributions! Please see our [Development Guide](docs/DEVELOPMENT.md
 ## 🔐 Privacy & Security
 
 - **API Keys**: Never logged or exposed in output
+- **Sensitive Data**: Automatically filtered from prompts (basic keyword detection)
 - **Local Mode**: Option to avoid external API calls
 - **Command Validation**: Built-in safety checks for dangerous operations
-- **Sensitive Data**: I need to find a way to automatically filter them from prompts
 
 ---
 

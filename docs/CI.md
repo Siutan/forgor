@@ -6,6 +6,30 @@ This document explains the CI/CD pipeline for the `forgor` CLI tool.
 
 The CI pipeline automatically builds, tests, and validates every pull request to ensure code quality and cross-platform compatibility. It consists of multiple jobs that run in parallel for efficiency.
 
+## Automated Release Process
+
+When a PR is merged to main, the following automated process occurs:
+
+```mermaid
+graph LR
+    A[PR Merged to Main] --> B[Auto Release Workflow]
+    B --> C{VERSION file<br/>bumped?}
+    C -->|Yes| D{Tag exists?}
+    C -->|No| E[Skip Release]
+    D -->|No| F[Create Tag v{VERSION}]
+    D -->|Yes| G[Skip Release]
+    F --> H[Release Workflow Triggered]
+    H --> I[Build for All Platforms]
+    I --> J[Create GitHub Release]
+    J --> K[Upload Binaries & Checksums]
+```
+
+**Key Points**:
+- ✅ **Automatic**: No manual intervention required
+- ✅ **Safe**: Multiple checks prevent duplicate releases
+- ✅ **Fast**: Parallel builds for all platforms
+- ✅ **Complete**: Includes binaries, checksums, and release notes
+
 ## Workflows
 
 ### 1. CI Workflow (`.github/workflows/ci.yml`)
@@ -88,16 +112,38 @@ graph TD
 - Version is increased for PRs
 - New version is greater than previous version
 
-### 3. Release Workflow (`.github/workflows/release.yml`)
+### 3. Auto Release Workflow (`.github/workflows/auto-release.yml`)
 
-**Purpose**: Automates releases when version tags are pushed
+**Purpose**: Automatically creates tags and releases when PRs are merged to main
+
+**How it works**:
+
+1. **Triggers** on pushes to main branch (from merged PRs)
+2. **Reads** the VERSION file to get the current version
+3. **Validates** the version format (semver: X.Y.Z)
+4. **Checks** if the tag already exists (prevents duplicates)
+5. **Verifies** this is actually a PR merge (not a direct push)
+6. **Creates** a git tag with the version (e.g., v0.2.1)
+7. **Pushes** the tag, which triggers the Release Workflow
+
+**Smart detection**:
+- Only runs on PR merges, not direct pushes
+- Skips if tag already exists
+- Validates version format before proceeding
+
+### 4. Release Workflow (`.github/workflows/release.yml`)
+
+**Purpose**: Builds and publishes releases when version tags are pushed
+
+**Triggered by**: Auto Release Workflow (or manual tag pushes)
 
 **Features**:
 
-- Builds for all platforms
-- Creates GitHub releases
-- Attaches binaries and checksums
-- Extracts changelog information
+- Builds for all platforms (Linux, macOS, Windows)
+- Creates GitHub releases with binaries
+- Attaches checksums for verification
+- Extracts changelog information (if available)
+- Supports pre-releases (versions with - suffix)
 
 ## CI Requirements
 
@@ -354,3 +400,61 @@ The Summary job creates a detailed report in the PR:
 ```
 
 This system ensures every change to `forgor` maintains high quality and works reliably across all supported platforms.
+
+## Release Process
+
+### For Contributors
+
+**To create a release**, simply:
+
+1. **Bump the version** in the `VERSION` file
+2. **Create a PR** with your changes
+3. **Merge the PR** - the release happens automatically!
+
+**Version format**: Use semantic versioning (e.g., `1.2.3`)
+- **Patch** (1.2.3 → 1.2.4): Bug fixes
+- **Minor** (1.2.3 → 1.3.0): New features (backwards compatible)
+- **Major** (1.2.3 → 2.0.0): Breaking changes
+
+### What Happens Automatically
+
+When your PR is merged:
+
+1. ✅ **Auto Release Workflow** detects the PR merge
+2. ✅ **Version** is read from `VERSION` file  
+3. ✅ **Tag** is created (e.g., `v1.2.3`)
+4. ✅ **Release Workflow** builds binaries for all platforms
+5. ✅ **GitHub Release** is created with downloads
+
+### Manual Releases (If Needed)
+
+You can also create releases manually:
+
+```bash
+# Create and push a tag
+git tag v1.2.3
+git push origin v1.2.3
+
+# The release workflow will automatically trigger
+```
+
+### Pre-releases
+
+For pre-release versions, use a suffix:
+
+```
+1.2.3-beta.1
+1.2.3-rc.1
+1.2.3-alpha.2
+```
+
+These will be marked as "pre-release" on GitHub.
+
+### Release Artifacts
+
+Each release includes:
+
+- **Binaries** for all supported platforms
+- **Checksums** (SHA256) for verification
+- **Release notes** (auto-generated or from CHANGELOG.md)
+- **Source code** (automatically attached by GitHub)
