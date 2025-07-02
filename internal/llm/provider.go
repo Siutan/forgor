@@ -75,6 +75,12 @@ type Response struct {
 	// Confidence score (0.0 to 1.0)
 	Confidence float64 `json:"confidence,omitempty"`
 
+	// Danger level assessment
+	DangerLevel DangerLevel `json:"danger_level,omitempty"`
+
+	// Reason for the danger assessment
+	DangerReason string `json:"danger_reason,omitempty"`
+
 	// Safety warnings
 	Warnings []string `json:"warnings,omitempty"`
 
@@ -83,6 +89,26 @@ type Response struct {
 
 	// Token usage information
 	Usage *Usage `json:"usage,omitempty"`
+}
+
+// DangerLevel represents the assessed danger level of a command
+type DangerLevel string
+
+const (
+	DangerLevelSafe     DangerLevel = "safe"     // Safe command, no risks
+	DangerLevelLow      DangerLevel = "low"      // Minor risks, generally safe
+	DangerLevelMedium   DangerLevel = "medium"   // Moderate risks, requires caution
+	DangerLevelHigh     DangerLevel = "high"     // High risks, potentially destructive
+	DangerLevelCritical DangerLevel = "critical" // Critical risks, very dangerous
+)
+
+// DangerAssessment contains the result of danger analysis
+type DangerAssessment struct {
+	Level       DangerLevel `json:"level"`
+	Confidence  float64     `json:"confidence"`  // Confidence in the assessment (0.0 to 1.0)
+	Reason      string      `json:"reason"`      // Human-readable reason
+	Factors     []string    `json:"factors"`     // List of risk factors detected
+	Mitigations []string    `json:"mitigations"` // Suggested risk mitigations
 }
 
 // Usage represents token usage information

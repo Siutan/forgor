@@ -1,8 +1,14 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"forgor/internal/config"
+	"forgor/internal/llm"
+	"forgor/internal/security"
+	"forgor/internal/utils"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -66,8 +72,131 @@ Examples:
 			fmt.Printf("🔍 Executing command: %s\n", command)
 		}
 
-		return executeCommand(command, []string{})
+		// Use enhanced danger assessment
+		return executeCommandEnhanced(command)
 	},
+}
+
+// executeCommandEnhanced runs a command with sophisticated danger assessment
+func executeCommandEnhanced(command string) error {
+	if command == "" {
+		return fmt.Errorf("no command to execute")
+	}
+
+	// Create danger detector and assess the command
+	detector := security.NewDangerDetector()
+	ctx := &llm.Context{
+		OS:               utils.GetOperatingSystem(),
+		Shell:            utils.GetCurrentShell(),
+		WorkingDirectory: utils.GetWorkingDirectory(),
+	}
+	assessment := detector.AssessCommand(command, ctx)
+
+	// Show danger assessment
+	if assessment.Level != llm.DangerLevelSafe {
+		icon := getDangerIcon(assessment.Level)
+		fmt.Printf("%s %s DANGER LEVEL: %s\n", icon,
+			strings.ToUpper(string(assessment.Level)), assessment.Reason)
+
+		if len(assessment.Factors) > 0 {
+			fmt.Printf("⚠️  Risk factors:\n")
+			for _, factor := range assessment.Factors {
+				fmt.Printf("  • %s\n", factor)
+			}
+		}
+
+		if len(assessment.Mitigations) > 0 {
+			fmt.Printf("💡 Safety recommendations:\n")
+			for _, mitigation := range assessment.Mitigations {
+				fmt.Printf("  • %s\n", mitigation)
+			}
+		}
+		fmt.Println()
+	}
+
+	// Enhanced safety checks based on danger level
+	if assessment.Level >= llm.DangerLevelMedium && !runForce {
+		if err := handleDangerousExecution(command, assessment); err != nil {
+			return err
+		}
+	} else if !runForce {
+		// For low/safe commands, still ask for confirmation unless forced
+		if !runQuiet {
+			fmt.Printf("Execute: %s\n", command)
+			fmt.Printf("Continue? [Y/n]: ")
+
+			reader := bufio.NewReader(os.Stdin)
+			response, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("failed to read confirmation: %w", err)
+			}
+
+			response = strings.TrimSpace(strings.ToLower(response))
+			if response != "" && response != "y" && response != "yes" {
+				fmt.Printf("❌ Command execution cancelled\n")
+				return nil
+			}
+		}
+	}
+
+	// Execute the command using the standard execution logic
+	return executeCommand(command, assessment.Factors)
+}
+
+// handleDangerousExecution handles execution confirmation for dangerous commands
+func handleDangerousExecution(command string, assessment llm.DangerAssessment) error {
+	icon := getDangerIcon(assessment.Level)
+	fmt.Printf("%s %s COMMAND DETECTED!\n", icon, strings.ToUpper(string(assessment.Level)))
+	fmt.Printf("Command: %s\n", command)
+	fmt.Printf("Reason: %s\n\n", assessment.Reason)
+
+	if assessment.Level >= llm.DangerLevelHigh {
+		fmt.Printf("This command may be destructive. Type 'YES I UNDERSTAND THE RISKS' to confirm: ")
+
+		reader := bufio.NewReader(os.Stdin)
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read confirmation: %w", err)
+		}
+
+		if strings.TrimSpace(response) != "YES I UNDERSTAND THE RISKS" {
+			fmt.Printf("❌ Command execution cancelled\n")
+			return nil
+		}
+	} else {
+		fmt.Printf("Continue? (type 'yes' to confirm): ")
+
+		reader := bufio.NewReader(os.Stdin)
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read confirmation: %w", err)
+		}
+
+		if strings.TrimSpace(strings.ToLower(response)) != "yes" {
+			fmt.Printf("❌ Command execution cancelled\n")
+			return nil
+		}
+	}
+
+	return nil
+}
+
+// getDangerIcon returns an appropriate icon for the danger level
+func getDangerIcon(level llm.DangerLevel) string {
+	switch level {
+	case llm.DangerLevelSafe:
+		return "✅"
+	case llm.DangerLevelLow:
+		return "🟡"
+	case llm.DangerLevelMedium:
+		return "🟠"
+	case llm.DangerLevelHigh:
+		return "🔴"
+	case llm.DangerLevelCritical:
+		return "💀"
+	default:
+		return "❓"
+	}
 }
 
 func init() {

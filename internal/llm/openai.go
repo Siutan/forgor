@@ -122,21 +122,24 @@ func (p *OpenAIProvider) GenerateCommand(ctx context.Context, request *Request) 
 	}
 
 	choice := resp.Choices[0]
-	command, explanation := p.parseResponse(choice.Message.Content, request.Options.IncludeExplanation)
+	command, explanation, llmDangerLevel, llmDangerReason := p.parseResponse(choice.Message.Content, request.Options.IncludeExplanation)
 
 	return &Response{
-		Command:     command,
-		Explanation: explanation,
-		Confidence:  p.calculateConfidence(choice.FinishReason),
-		Warnings:    p.checkSafety(command),
+		Command:      command,
+		Explanation:  explanation,
+		Confidence:   p.calculateConfidence(choice.FinishReason),
+		DangerLevel:  llmDangerLevel,
+		DangerReason: llmDangerReason,
+		Warnings:     p.checkSafety(command),
 		Usage: &Usage{
 			PromptTokens:     resp.Usage.PromptTokens,
 			CompletionTokens: resp.Usage.CompletionTokens,
 			TotalTokens:      resp.Usage.TotalTokens,
 		},
 		Metadata: map[string]interface{}{
-			"model":         resp.Model,
-			"finish_reason": choice.FinishReason,
+			"model":            resp.Model,
+			"finish_reason":    choice.FinishReason,
+			"llm_danger_level": string(llmDangerLevel),
 		},
 	}, nil
 }
@@ -251,24 +254,55 @@ func (p *OpenAIProvider) buildCommandPrompt(request *Request) string {
 		parts = append(parts, fmt.Sprintf("\nAdditional context: %s", request.Context.UserContext))
 	}
 
+	// Add response format instructions
+	parts = append(parts, "\nPlease respond in this exact format:")
+	parts = append(parts, "COMMAND: [the shell command]")
 	if request.Options.IncludeExplanation {
-		parts = append(parts, "\nRespond with the command followed by a brief explanation separated by '||'.")
-	} else {
-		parts = append(parts, "\nRespond with only the shell command, no explanation.")
+		parts = append(parts, "EXPLANATION: [brief explanation]")
 	}
+	parts = append(parts, "DANGER_LEVEL: [safe/low/medium/high/critical]")
+	parts = append(parts, "DANGER_REASON: [reason for the danger level assessment]")
 
 	return strings.Join(parts, "\n")
 }
 
-// parseResponse extracts command and explanation from the response
-func (p *OpenAIProvider) parseResponse(content string, includeExplanation bool) (command, explanation string) {
+// parseResponse extracts command, explanation, and danger assessment from the response
+func (p *OpenAIProvider) parseResponse(content string, includeExplanation bool) (command, explanation string, dangerLevel DangerLevel, dangerReason string) {
 	content = strings.TrimSpace(content)
+	lines := strings.Split(content, "\n")
 
-	if includeExplanation && strings.Contains(content, "||") {
-		parts := strings.SplitN(content, "||", 2)
-		command = strings.TrimSpace(parts[0])
-		explanation = strings.TrimSpace(parts[1])
-	} else {
+	// Default values
+	dangerLevel = DangerLevelSafe
+	dangerReason = "No specific assessment provided"
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		if strings.HasPrefix(line, "COMMAND:") {
+			command = strings.TrimSpace(strings.TrimPrefix(line, "COMMAND:"))
+		} else if strings.HasPrefix(line, "EXPLANATION:") && includeExplanation {
+			explanation = strings.TrimSpace(strings.TrimPrefix(line, "EXPLANATION:"))
+		} else if strings.HasPrefix(line, "DANGER_LEVEL:") {
+			levelStr := strings.TrimSpace(strings.TrimPrefix(line, "DANGER_LEVEL:"))
+			switch strings.ToLower(levelStr) {
+			case "safe":
+				dangerLevel = DangerLevelSafe
+			case "low":
+				dangerLevel = DangerLevelLow
+			case "medium":
+				dangerLevel = DangerLevelMedium
+			case "high":
+				dangerLevel = DangerLevelHigh
+			case "critical":
+				dangerLevel = DangerLevelCritical
+			}
+		} else if strings.HasPrefix(line, "DANGER_REASON:") {
+			dangerReason = strings.TrimSpace(strings.TrimPrefix(line, "DANGER_REASON:"))
+		}
+	}
+
+	// Fallback: if no structured response, treat whole content as command
+	if command == "" {
 		command = content
 	}
 
@@ -279,7 +313,7 @@ func (p *OpenAIProvider) parseResponse(content string, includeExplanation bool) 
 	command = strings.TrimSuffix(command, "```")
 	command = strings.TrimSpace(command)
 
-	return command, explanation
+	return command, explanation, dangerLevel, dangerReason
 }
 
 // calculateConfidence estimates confidence based on finish reason
