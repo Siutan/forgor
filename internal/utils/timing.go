@@ -107,8 +107,6 @@ func (t *Timer) PrintSummary() {
 			statusStr = Styled(step.Name, StyleSuccess)
 		} else if strings.Contains(strings.ToLower(step.Name), "error") {
 			statusStr = Styled(step.Name, StyleError)
-		} else {
-			statusStr = step.Name
 		}
 
 		rows = append(rows, []string{statusStr, durationStr, percentageStr})
