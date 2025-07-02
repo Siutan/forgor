@@ -1,0 +1,34 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+output:
+  formats:
+    text:
+      print-linter-name: true
+      print-issued-lines: true
+      colors: true
+
+linters:
+  enable:
+    - govet
+    - misspell
+    - ineffassign
+    - unused
+    - errcheck
+  exclusions:
+    warn-unused: true
+    paths-except:
+      - ./tests/*.go
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    warn-unused: true
+
+
+

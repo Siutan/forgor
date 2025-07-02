@@ -1,184 +1,361 @@
 # 🧠 forgor
 
-> _"bro how do I grep again?"_ > `forgor` is your LLM-powered memory jogger for the command line. You describe what you **meant to do**, and `forgor` helps you **remember** how to do it.
+**LLM-powered command line memory assistant**
+
+> Transform natural language into shell commands with AI assistance
+
+`forgor` is a CLI tool that translates your natural language descriptions into executable shell commands using Large Language Models. Whether you forgot a specific syntax or need help crafting complex commands, `forgor` has your back.
 
 ---
 
-## 🧾 What is this?
+## ✨ Features
 
-`forgor` (`ff`) is a CLI tool that lets you type **natural language prompts** and get **bash-friendly commands** back, powered by an LLM (local or remote, you decide). It's like having a shell-savvy bredrin on standby, no matter how long ago you last used `awk`.
-
-You talk. It translates.
-
----
-
-## 🧪 Examples
-
-```bash
-$ ff select all txt files with the string "hello" in it
-# Output:
-grep -rl "hello" --include="*.txt" .
-
-$ ff show me how to make a new tmux session called dev
-# Output:
-tmux new -s dev
-
-$ ff how do I kill all docker containers
-# Output:
-docker rm -f $(docker ps -aq)
-```
-
-### 🕰️ History-powered fixes
-
-Let's say you mess up a command or get an error. You can fix it with context from the past:
-
-```bash
-$ ff -h 1 fix the above command
-```
-
-> Looks at the last command in history (`-h 1`) and sends that + your fix request to the LLM.
-
-```bash
-$ ff -h 3 make the third command safer
-```
+- 🤖 **Multiple LLM Providers**: OpenAI, Anthropic Claude, Google Gemini
+- 🔧 **Flexible Configuration**: Profile-based setup with environment variable support
+- 📚 **Shell History Integration**: Context-aware suggestions using command history
+- 🎯 **Smart Context Detection**: Automatically detects your OS, shell, and available tools
+- 🛡️ **Safety Features**: Danger assessment and warnings for potentially destructive commands
+- 🔄 **Interactive Mode**: Follow-up questions and command refinement
+- 📖 **Explain Mode**: Get detailed explanations of what commands do
+- ⚡ **Shell Completion**: Tab completion for all major shells (bash, zsh, fish)
+- 🏃 **Force Run Mode**: Directly execute generated commands (use with caution)
 
 ---
 
-## 🔧 Installation
+## 🚀 Installation
 
-_This is placeholder until you build it fam, but pattern it like this:_
+### Quick Install
 
 ```bash
-go install github.com/YOURUSERNAME/forgor@latest
+go install github.com/Siutan/forgor@latest
 ```
 
-Then:
+### Add to PATH
+
+If `go install` doesn't automatically add the binary to your PATH, add Go's bin directory:
 
 ```bash
+# Add to your shell profile (.bashrc, .zshrc, etc.)
+export PATH=$PATH:$(go env GOPATH)/bin
+
+# Source your profile to apply changes
+source ~/.bashrc  # or ~/.zshrc, ~/.bash_profile, etc.
+```
+
+### Create Alias (Recommended)
+
+For convenience, create an alias to use `ff` instead of typing `forgor`:
+
+```bash
+# Add to your shell profile (.bashrc, .zshrc, etc.)
 alias ff="forgor"
+
+# Source your profile
+source ~/.bashrc  # or ~/.zshrc, ~/.bash_profile, etc.
+```
+
+### Verify Installation
+
+```bash
+forgor --version
+# or with alias
+ff --version
 ```
 
 ---
 
-## 🚀 Shell Completion
+## ⚙️ Setup
 
-`forgor` supports shell autocompletion for bash, zsh, fish, and powershell. This gives you tab completion for commands, flags, and even smart completion for flag values like profiles and formats.
-
-### ⚡ One-Command Setup
-
-Just run one command and forgor will automatically set up completion for your shell:
+### 1. Initialize Configuration
 
 ```bash
-# Auto-detect your shell and set up completion
-forgor config completion
+forgor config init
+```
 
-# Or specify a shell explicitly
+This creates a default configuration at `~/.config/forgor/config.yaml`.
+
+### 2. Set API Keys
+
+Configure your preferred LLM provider by setting environment variables:
+
+```bash
+# For OpenAI
+export OPENAI_API_KEY="your-api-key-here"
+
+# For Anthropic Claude
+export ANTHROPIC_API_KEY="your-api-key-here"
+
+# For Google Gemini
+export GOOGLE_AI_API_KEY="your-api-key-here"
+```
+
+Add these to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.) to persist them.
+
+### 3. Set Default Provider
+
+```bash
+forgor config set-default openai      # or anthropic, gemini
+```
+
+### 4. Setup Shell Completion (Optional)
+
+```bash
+forgor config completion              # Auto-detect shell
+# or specify shell explicitly
 forgor config completion zsh
-forgor config completion bash
-forgor config completion fish
 ```
 
-**Example output:**
+---
+
+## 🧾 Usage
+
+### Basic Usage
 
 ```bash
-$ forgor config completion
-🚀 Setting up zsh completion for forgor...
+# Basic command generation
+forgor "find all txt files containing 'hello'"
 
-📋 Created backup: /Users/you/.zshrc.forgor-backup
-✅ Added forgor completion to /Users/you/.zshrc
-🔄 Run 'source /Users/you/.zshrc' or restart your zsh shell to enable completion
-🚀 Attempting to source the file automatically...
-✨ Completion should now be active in your current session!
+# With alias (if configured)
+ff "show me how to make a new tmux session called dev"
 ```
 
-This will:
-
-- ✅ Detect your shell automatically (or use the one you specify)
-- ✅ Add the necessary completion code to your shell config (`.zshrc`, `.bashrc`, etc.)
-- ✅ Create a backup of your config file first
-- ✅ Try to activate completion immediately in your current session
-
-### 🧠 Smart Completions
-
-Once set up, you'll get intelligent tab completion for:
-
-- **`--profile`**: Your configured profiles (e.g., "openai", "anthropic", "gemini")
-- **`--format`**: Valid formats ("plain", "json")
-- **`--history`**: Common values (0, 1, 2, 3, 5, 10)
-- **Commands**: All available forgor commands and subcommands
-- **Flags**: All available flags with descriptions
-
----
-
-## ⚙️ How it works
-
-1. **Input**: You type a prompt or fix.
-2. **History** (optional): `forgor` reads past commands with `-h N` (defaults to 10 max).
-3. **LLM Prompting**: Sends context to an LLM (OpenAI, local model, whatever you plug in).
-4. **Output**: Returns a shell command. You copy it, tweak it, or run it.
-
----
-
-## 💡 Possible Commands & Ideas
-
-- `ff turn this command into a one-liner`
-- `ff add sudo if necessary to the last 2 commands -h 2`
-- `ff explain this: awk '{print $2}'`
-- `ff make this cross-platform -h 1`
-- `ff add a dry-run flag to last command`
-- `ff combine these 2 commands -h 2`
-- `ff generate a find command that excludes node_modules`
-
-Mandem thinking ahead:
-
-- **Interactive mode**? (`ff -i`) where it asks follow-ups.
-- **Explain + Suggest** mode? (`ff -e`) to get breakdown + alt options.
-- Pipe in from `stdin`?:
-
-  ```bash
-  echo "rm -rf /" | ff explain this command
-  ```
-
----
-
-## 🧱 Roadmap (you gotta build the tings)
-
-- [ ] CLI tool scaffolding in Go
-- [ ] Shell history reader (bash/zsh/fish support)
-- [ ] LLM API integration (OpenAI / local model)
-- [ ] Config file for tokens/models
-- [ ] Output formatting
-- [ ] Interactive tweaks (`--confirm`, etc.)
-- [ ] Plugins/extensions?
-
----
-
-## 🔐 Privacy
-
-If you're sending stuff to an API, watch out for sensitive info. You can bake in filters, redaction, or local-only options.
-
----
-
-## 🧑‍💻 Dev Setup
+### History-Aware Commands
 
 ```bash
-git clone https://github.com/YOURUSERNAME/forgor
+# Include last 2 commands from history for context
+forgor --history 2 "fix the above command"
+
+# Short form
+forgor -h 1 "make the last command safer"
+```
+
+### Different Modes
+
+```bash
+# Explain what a command does
+forgor --explain "docker rm -f \$(docker ps -aq)"
+
+# Interactive mode with follow-ups
+forgor --interactive "help me set up a web server"
+
+# Force run the generated command (DANGEROUS - use carefully)
+forgor --force-run "list all files in current directory"
+```
+
+### Using Different Providers
+
+```bash
+# Use a specific provider profile
+forgor --profile anthropic "optimize this bash script"
+
+# Check available providers
+forgor config list-providers
+```
+
+---
+
+## 📋 Examples
+
+### File Operations
+
+```bash
+forgor "recursively find all Python files modified in the last 7 days"
+# Output: find . -name "*.py" -mtime -7
+
+forgor "compress the current directory excluding node_modules"
+# Output: tar --exclude='node_modules' -czf archive.tar.gz .
+```
+
+### Docker Commands
+
+```bash
+forgor "stop all running containers"
+# Output: docker stop $(docker ps -q)
+
+forgor "remove all unused docker images"
+# Output: docker image prune -a
+```
+
+### System Administration
+
+```bash
+forgor "show processes using port 8080"
+# Output: lsof -i :8080
+
+forgor "find large files over 100MB in home directory"
+# Output: find ~ -type f -size +100M
+```
+
+### Git Operations
+
+```bash
+forgor "undo the last commit but keep changes"
+# Output: git reset --soft HEAD~1
+
+forgor "show git log in one line format"
+# Output: git log --oneline
+```
+
+---
+
+## 🔧 Configuration
+
+### Configuration File
+
+The configuration file is located at `~/.config/forgor/config.yaml`:
+
+```yaml
+default_profile: "openai"
+
+profiles:
+  openai:
+    provider: "openai"
+    api_key: "${OPENAI_API_KEY}"
+    model: "gpt-4"
+    max_tokens: 150
+    temperature: 0.1
+
+  anthropic:
+    provider: "anthropic"
+    api_key: "${ANTHROPIC_API_KEY}"
+    model: "claude-3-sonnet-20240229"
+    max_tokens: 150
+    temperature: 0.1
+
+  gemini:
+    provider: "gemini"
+    api_key: "${GOOGLE_AI_API_KEY}"
+    model: "gemini-1.5-flash"
+    max_tokens: 150
+    temperature: 0.1
+
+history:
+  max_commands: 10
+  shells: ["bash", "zsh", "fish"]
+
+security:
+  redact_sensitive: true
+  filters:
+    - "password"
+    - "token"
+    - "secret"
+    - "key"
+
+output:
+  format: "plain"
+```
+
+### Configuration Commands
+
+```bash
+# Show current configuration
+forgor config show
+
+# Set default provider
+forgor config set-default anthropic
+
+# List all available providers
+forgor config list-providers
+```
+
+---
+
+## 🛡️ Safety Features
+
+`forgor` includes built-in safety features to protect against dangerous commands:
+
+- **Danger Assessment**: Commands are analyzed for potential risks
+- **Warning System**: Destructive operations trigger warnings
+- **Confirmation Prompts**: High-risk commands require explicit confirmation
+- **Sensitive Data Filtering**: API keys and passwords are filtered from prompts
+
+---
+
+## 🗺️ Roadmap
+
+### ✅ Implemented
+
+- [x] Core LLM integration (OpenAI, Anthropic, Gemini)
+- [x] Configuration management with profiles
+- [x] Shell history integration
+- [x] Context-aware prompting
+- [x] Interactive and explain modes
+- [x] Shell completion
+- [x] Safety and danger assessment
+- [x] Force run mode
+- [x] Comprehensive configuration tools
+
+### 🚧 In Progress
+
+- [ ] Additional LLM providers (Ollama, local models)
+- [ ] Enhanced history filtering and search
+- [ ] Command templates and favorites
+- [ ] Plugin system for custom providers
+
+### 🔮 Future
+
+- [ ] Web interface for command history
+- [ ] Team collaboration features
+- [ ] Advanced prompt engineering tools
+- [ ] Integration with external documentation
+- [ ] Command learning and suggestions
+
+---
+
+## 🧑‍💻 Development
+
+### Building from Source
+
+```bash
+git clone https://github.com/Siutan/forgor.git
 cd forgor
-go run main.go "how do I use rsync to copy a folder"
+go build -o forgor main.go
 ```
 
----
+### Running Tests
 
-## 🤝 Contributions
+```bash
+go test ./...
+```
 
-Wanna help mandem build `forgor`? Pattern a PR, raise an issue, or shout on Discord.
+For detailed development information, see the [Development Guide](docs/DEVELOPMENT.md).
 
----
-
-## 🕊️ License
-
-MIT. You're free to build, remix, and shell out.
+Also im skipping priority on windows tests because i use MacOS but if you can help me with that i would be very thankful :)
 
 ---
 
-Let me know if you want help building the actual CLI scaffolding next fam — we'll spin this ting up faster than a drill beat at 140 BPM.
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Development Guide](docs/DEVELOPMENT.md) for detailed information on:
+
+- Setting up the development environment
+- Code quality standards
+- Creating pull requests
+- Testing procedures
+
+---
+
+## 🔐 Privacy & Security
+
+- **API Keys**: Never logged or exposed in output
+- **Local Mode**: Option to avoid external API calls
+- **Command Validation**: Built-in safety checks for dangerous operations
+- **Sensitive Data**: I need to find a way to automatically filter them from prompts
+
+---
+
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+## 🆘 Support
+
+- 🐛 **Issues**: [GitHub Issues](https://github.com/Siutan/forgor/issues)
+- 💬 **Discussions**: [GitHub Discussions](https://github.com/Siutan/forgor/discussions)
+- 📧 **Email**: [Contact the maintainers](https://github.com/Siutan/forgor#maintainers)
+
+---
+
+_"Never forget how to command your terminal again."_
