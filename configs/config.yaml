@@ -12,6 +12,14 @@ profiles:
     max_tokens: 150
     temperature: 0.1
 
+  # Google AI Gemini configuration
+  gemini:
+    provider: "gemini"
+    api_key: "${GOOGLE_AI_API_KEY}" # Set GOOGLE_AI_API_KEY environment variable
+    model: "gemini-1.5-pro"
+    max_tokens: 150
+    temperature: 0.1
+
   # Local model configuration (e.g., Ollama)
   local:
     provider: "local"

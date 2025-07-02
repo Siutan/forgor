@@ -43,6 +43,7 @@ Thumbs.db
 # Config files (personal configs should not be committed)
 config.yaml
 !configs/config.yaml
+implementation-docs/
 
 # Build artifacts
 dist/
