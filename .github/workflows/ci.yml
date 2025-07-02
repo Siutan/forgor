@@ -1,0 +1,387 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  lint-and-format:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Check formatting
+        run: |
+          if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+            echo "❌ Code is not properly formatted. Run 'gofmt -s -w .'"
+            gofmt -s -l .
+            exit 1
+          fi
+          echo "✅ Code is properly formatted"
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.54.2
+
+      - name: Run golangci-lint
+        run: $(go env GOPATH)/bin/golangci-lint run ./...
+
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Generate coverage report
+        run: go tool cover -html=coverage.out -o coverage.html
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-report
+          path: |
+            coverage.out
+            coverage.html
+
+      - name: Check test coverage
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print substr($3, 1, length($3)-1)}')
+          echo "Test coverage: ${COVERAGE}%"
+
+          # You can set a minimum coverage threshold here
+          THRESHOLD=50
+          COVERAGE_NUM=$(echo "$COVERAGE" | awk '{print int($1)}')
+          if [ "$COVERAGE_NUM" -lt "$THRESHOLD" ]; then
+            echo "❌ Test coverage ($COVERAGE%) is below threshold ($THRESHOLD%)"
+            exit 1
+          fi
+          echo "✅ Test coverage ($COVERAGE%) meets minimum threshold ($THRESHOLD%)"
+
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go-version: ["1.20", "1.21"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-${{ matrix.go-version }}-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Get version info
+        id: version
+        shell: bash
+        run: |
+          if [ -f "VERSION" ]; then
+            VERSION=$(cat VERSION)
+          else
+            VERSION="dev"
+          fi
+          COMMIT=$(git rev-parse HEAD)
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "commit=$COMMIT" >> $GITHUB_OUTPUT
+          echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
+
+          echo "Building version: $VERSION"
+          echo "Commit: $COMMIT"
+          echo "Build date: $BUILD_DATE"
+
+      - name: Build binary
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          COMMIT="${{ steps.version.outputs.commit }}"
+          BUILD_DATE="${{ steps.version.outputs.build_date }}"
+
+          LDFLAGS="-X 'forgor/cmd.Version=$VERSION' -X 'forgor/cmd.GitCommit=$COMMIT' -X 'forgor/cmd.BuildDate=$BUILD_DATE'"
+
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            go build -ldflags "$LDFLAGS" -o forgor.exe .
+            BINARY="forgor.exe"
+          else
+            go build -ldflags "$LDFLAGS" -o forgor .
+            BINARY="forgor"
+          fi
+
+          echo "Built binary: $BINARY"
+          ls -la $BINARY
+
+      - name: Test binary execution
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            BINARY="./forgor.exe"
+          else
+            BINARY="./forgor"
+          fi
+
+          echo "Testing binary execution..."
+          $BINARY version
+          echo ""
+          $BINARY --help
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: forgor-${{ matrix.os }}-go${{ matrix.go-version }}
+          path: |
+            forgor*
+            !forgor/
+
+  build-cross-platform:
+    runs-on: ubuntu-latest
+    needs: [lint-and-format, test]
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Get version info
+        id: version
+        run: |
+          if [ -f "VERSION" ]; then
+            VERSION=$(cat VERSION)
+          else
+            VERSION="dev"
+          fi
+          COMMIT=$(git rev-parse HEAD)
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "commit=$COMMIT" >> $GITHUB_OUTPUT
+          echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
+
+      - name: Build for all platforms
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          COMMIT="${{ steps.version.outputs.commit }}"
+          BUILD_DATE="${{ steps.version.outputs.build_date }}"
+
+          LDFLAGS="-X 'forgor/cmd.Version=$VERSION' -X 'forgor/cmd.GitCommit=$COMMIT' -X 'forgor/cmd.BuildDate=$BUILD_DATE'"
+
+          mkdir -p dist
+
+          echo "Building for multiple platforms..."
+
+          # Linux
+          GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/forgor-linux-amd64 .
+          GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/forgor-linux-arm64 .
+
+          # macOS
+          GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/forgor-darwin-amd64 .
+          GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/forgor-darwin-arm64 .
+
+          # Windows
+          GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/forgor-windows-amd64.exe .
+
+          # ARM variants
+          GOOS=linux GOARCH=arm go build -ldflags "$LDFLAGS" -o dist/forgor-linux-arm .
+          GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/forgor-linux-arm64 .
+
+          echo "Built binaries:"
+          ls -la dist/
+
+      - name: Create checksums
+        run: |
+          cd dist
+          sha256sum * > checksums.txt
+          cat checksums.txt
+          cd ..
+
+      - name: Upload cross-platform artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: forgor-cross-platform-pr${{ github.event.number }}
+          path: dist/
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: [build]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download binary artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: forgor-ubuntu-latest-go1.21
+
+      - name: Make binary executable
+        run: chmod +x forgor
+
+      - name: Run integration tests
+        run: |
+          echo "Running integration tests..."
+
+          # Test version command
+          ./forgor version
+
+          # Test help command
+          ./forgor --help
+
+          # Test config commands
+          ./forgor config --help
+
+          # Test completion setup (dry run)
+          echo "Testing completion setup..."
+          # We can't actually test shell completion in CI, but we can test the command exists
+          ./forgor config completion --help
+
+          echo "✅ Integration tests passed!"
+
+  security-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+
+      - name: Run Gosec Security Scanner
+        uses: securecodewarrior/github-action-gosec@master
+        with:
+          args: "-fmt sarif -out gosec.sarif ./..."
+
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: gosec.sarif
+
+  summary:
+    runs-on: ubuntu-latest
+    needs:
+      [lint-and-format, test, build, build-cross-platform, integration-test]
+    if: always()
+
+    steps:
+      - name: Check job results
+        run: |
+          echo "## CI Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.lint-and-format.result }}" = "success" ]; then
+            echo "✅ **Lint & Format**: Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Lint & Format**: Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.test.result }}" = "success" ]; then
+            echo "✅ **Tests**: Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Tests**: Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.build.result }}" = "success" ]; then
+            echo "✅ **Build**: Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Build**: Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.build-cross-platform.result }}" = "success" ]; then
+            echo "✅ **Cross-platform Build**: Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Cross-platform Build**: Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.integration-test.result }}" = "success" ]; then
+            echo "✅ **Integration Tests**: Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Integration Tests**: Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**PR is ready for review!** 🎉" >> $GITHUB_STEP_SUMMARY
