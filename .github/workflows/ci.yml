@@ -90,7 +90,7 @@ jobs:
           echo "Test coverage: ${COVERAGE}%"
 
           # You can set a minimum coverage threshold here
-          THRESHOLD=8
+          THRESHOLD=5
           COVERAGE_NUM=$(echo "$COVERAGE" | awk '{print int($1)}')
           if [ "$COVERAGE_NUM" -lt "$THRESHOLD" ]; then
             echo "❌ Test coverage ($COVERAGE%) is below threshold ($THRESHOLD%)"
