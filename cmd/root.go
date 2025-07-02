@@ -197,17 +197,23 @@ func isLikelyCommand(input string) bool {
 
 // displayResponse formats and displays the LLM response
 func displayResponse(response *llm.Response, isExplanation bool) error {
+	// Handle explanation display
 	if isExplanation {
 		// Display explanation
 		fmt.Printf("📖 Command explanation:\n")
 		fmt.Printf("Command: %s\n\n", response.Command)
 		fmt.Printf("%s\n", response.Explanation)
-		return nil
-	}
 
-	// Display generated command
-	if explain && response.Explanation != "" {
-		fmt.Printf("💡 %s\n\n", response.Explanation)
+		// If force-run is also enabled, continue to execution
+		if !forceRun {
+			return nil
+		}
+		fmt.Println() // Add spacing before execution
+	} else {
+		// Display generated command with optional explanation
+		if explain && response.Explanation != "" {
+			fmt.Printf("💡 %s\n\n", response.Explanation)
+		}
 	}
 
 	// Show warnings if any
@@ -219,7 +225,10 @@ func displayResponse(response *llm.Response, isExplanation bool) error {
 		fmt.Println()
 	}
 
-	fmt.Printf("%s\n", response.Command)
+	// Show the command (unless we already showed it in explanation mode)
+	if !isExplanation {
+		fmt.Printf("%s\n", response.Command)
+	}
 
 	// Save the command to cache for later use with 'forgor run'
 	if response.Command != "" {
@@ -245,7 +254,7 @@ func displayResponse(response *llm.Response, isExplanation bool) error {
 		return executeCommand(response.Command, response.Warnings)
 	}
 
-	// Offer to run the command
+	// Offer to run the command (don't show if we're in explanation mode and not force-running)
 	if !isExplanation && response.Command != "" {
 		fmt.Printf("\n💡 Run this command? Use 'forgor run' or 'ff -R \"%s\"'\n",
 			response.Command)
