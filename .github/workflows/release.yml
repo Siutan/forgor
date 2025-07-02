@@ -48,8 +48,11 @@ jobs:
           GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/forgor-darwin-amd64 .
           GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/forgor-darwin-arm64 .
 
-          # Windows
-          GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/forgor-windows-amd64.exe .
+          # Windows (non-blocking)
+          if ! GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/forgor-windows-amd64.exe .; then
+            echo "⚠️ Windows build failed, skipping Windows binary."
+            rm -f dist/forgor-windows-amd64.exe
+          fi
 
           echo "Build complete:"
           ls -la dist/
