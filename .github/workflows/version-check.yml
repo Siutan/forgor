@@ -1,0 +1,113 @@
+name: Version Check
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  version-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch full history to compare versions
+
+      - name: Check if VERSION file exists
+        run: |
+          if [ ! -f "VERSION" ]; then
+            echo "❌ VERSION file not found!"
+            echo "Please create a VERSION file with the current version (e.g., 1.0.0)"
+            exit 1
+          fi
+
+      - name: Get current version
+        id: current-version
+        run: |
+          VERSION=$(cat VERSION)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $VERSION"
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ steps.current-version.outputs.version }}"
+          if [[ ! $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9\.-]+)?$ ]]; then
+            echo "❌ Invalid version format in VERSION file: $VERSION"
+            echo "Expected format: X.Y.Z or X.Y.Z-prerelease"
+            exit 1
+          fi
+          echo "✅ Version format is valid: $VERSION"
+
+      - name: Check version increase (PR only)
+        if: github.event_name == 'pull_request'
+        run: |
+          # Get the base branch version (main)
+          git checkout origin/main
+          BASE_VERSION=$(cat VERSION 2>/dev/null || echo "0.0.0")
+
+          # Switch back to PR branch
+          git checkout ${{ github.head_ref }}
+          PR_VERSION=$(cat VERSION)
+
+          echo "Base version (main): $BASE_VERSION"
+          echo "PR version: $PR_VERSION"
+
+          # Compare versions using sort -V (version sort)
+          if [ "$BASE_VERSION" = "$PR_VERSION" ]; then
+            echo "❌ Version must be bumped for PRs to main!"
+            echo "Current version: $PR_VERSION"
+            echo "Please bump the version using one of:"
+            echo "  ./scripts/version.sh bump patch    # For bug fixes"
+            echo "  ./scripts/version.sh bump minor    # For new features"
+            echo "  ./scripts/version.sh bump major    # For breaking changes"
+            echo "  ./scripts/version.sh bump prerelease [id]  # For pre-releases"
+            exit 1
+          fi
+
+          # Check if PR version is greater than base version
+          if ! printf '%s\n%s\n' "$BASE_VERSION" "$PR_VERSION" | sort -V -C; then
+            echo "❌ New version ($PR_VERSION) must be greater than current version ($BASE_VERSION)"
+            exit 1
+          fi
+
+          echo "✅ Version correctly bumped from $BASE_VERSION to $PR_VERSION"
+
+      - name: Check version increase (Push to main)
+        if: github.event_name == 'push'
+        run: |
+          # For push to main, check if version was increased in this commit
+          CURRENT_VERSION="${{ steps.current-version.outputs.version }}"
+
+          # Get the previous commit's version
+          PREV_VERSION=""
+          if git show HEAD~1:VERSION >/dev/null 2>&1; then
+            PREV_VERSION=$(git show HEAD~1:VERSION)
+          else
+            PREV_VERSION="0.0.0"
+          fi
+
+          echo "Previous version: $PREV_VERSION"
+          echo "Current version: $CURRENT_VERSION"
+
+          if [ "$PREV_VERSION" = "$CURRENT_VERSION" ]; then
+            echo "❌ Version must be bumped for pushes to main!"
+            echo "Current version: $CURRENT_VERSION"
+            echo "Please ensure version is bumped before pushing to main"
+            exit 1
+          fi
+
+          # Check if current version is greater than previous version
+          if ! printf '%s\n%s\n' "$PREV_VERSION" "$CURRENT_VERSION" | sort -V -C; then
+            echo "❌ New version ($CURRENT_VERSION) must be greater than previous version ($PREV_VERSION)"
+            exit 1
+          fi
+
+          echo "✅ Version correctly bumped from $PREV_VERSION to $CURRENT_VERSION"
+
+      - name: Summary
+        run: |
+          echo "🎉 Version check passed!"
+          echo "Version: ${{ steps.current-version.outputs.version }}"

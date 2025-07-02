@@ -1,14 +1,12 @@
 .PHONY: build test clean install dev fmt lint run help
 
-# Build info
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-DATE ?= $(shell date -u '+%Y-%m-%d_%H:%M:%S')
+# Get version from VERSION file
+VERSION := $(shell cat VERSION 2>/dev/null || echo "dev")
+COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # Build flags
-LDFLAGS := -X 'forgor/cmd.Version=$(VERSION)' \
-           -X 'forgor/cmd.GitCommit=$(COMMIT)' \
-           -X 'forgor/cmd.BuildDate=$(DATE)'
+LDFLAGS := -X 'forgor/cmd.Version=$(VERSION)' -X 'forgor/cmd.GitCommit=$(COMMIT)' -X 'forgor/cmd.BuildDate=$(BUILD_DATE)'
 
 # Go parameters
 GOCMD=go
@@ -20,6 +18,10 @@ GOMOD=$(GOCMD) mod
 GOFMT=gofmt
 BINARY_NAME=forgor
 BINARY_UNIX=$(BINARY_NAME)_unix
+
+# Directories
+DIST_DIR := dist
+SCRIPTS_DIR := scripts
 
 # Default target
 all: build
@@ -98,5 +100,81 @@ build-all:
 
 ## Show help
 help:
-	@echo "Available commands:"
-	@grep -E '^## ' Makefile | sed 's/## /  /' 
+	@echo "Available targets:"
+	@echo "  build               - Build the binary"
+	@echo "  build-all           - Build for all platforms"
+	@echo "  test                - Run tests"
+	@echo "  test-coverage       - Run tests with coverage"
+	@echo "  clean               - Clean build artifacts"
+	@echo "  install             - Install the binary"
+	@echo "  dev                 - Build and run"
+	@echo "  fmt                 - Format code"
+	@echo "  lint                - Lint code"
+	@echo ""
+	@echo "Version management:"
+	@echo "  version             - Show current version info"
+	@echo "  version-check       - Validate VERSION file"
+	@echo "  version-bump-patch  - Bump patch version"
+	@echo "  version-bump-minor  - Bump minor version"
+	@echo "  version-bump-major  - Bump major version"
+	@echo "  version-bump-prerelease - Bump prerelease version"
+	@echo ""
+	@echo "Releases:"
+	@echo "  release-patch       - Create patch release (bump, changelog, commit, tag)"
+	@echo "  release-minor       - Create minor release"
+	@echo "  release-major       - Create major release"
+	@echo "  release-prerelease  - Create prerelease"
+	@echo ""
+	@echo "Current version: $(VERSION)"
+
+## Version management commands
+version:
+	@echo "Current version: $(VERSION)"
+	@echo "Commit: $(COMMIT)"
+	@echo "Build date: $(BUILD_DATE)"
+
+.PHONY: version-bump-patch
+version-bump-patch:
+	$(SCRIPTS_DIR)/version.sh bump patch
+
+.PHONY: version-bump-minor
+version-bump-minor:
+	$(SCRIPTS_DIR)/version.sh bump minor
+
+.PHONY: version-bump-major
+version-bump-major:
+	$(SCRIPTS_DIR)/version.sh bump major
+
+.PHONY: version-bump-prerelease
+version-bump-prerelease:
+	$(SCRIPTS_DIR)/version.sh bump prerelease
+
+## Release commands
+release-patch:
+	$(SCRIPTS_DIR)/version.sh release patch
+
+.PHONY: release-minor
+release-minor:
+	$(SCRIPTS_DIR)/version.sh release minor
+
+.PHONY: release-major
+release-major:
+	$(SCRIPTS_DIR)/version.sh release major
+
+.PHONY: release-prerelease
+release-prerelease:
+	$(SCRIPTS_DIR)/version.sh release prerelease
+
+## Check if version file exists and is valid
+version-check:
+	@if [ ! -f "VERSION" ]; then \
+		echo "❌ VERSION file not found!"; \
+		echo "Run: echo '0.1.0' > VERSION"; \
+		exit 1; \
+	fi
+	@if ! echo "$(VERSION)" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$$'; then \
+		echo "❌ Invalid version format in VERSION file: $(VERSION)"; \
+		echo "Expected format: X.Y.Z or X.Y.Z-prerelease"; \
+		exit 1; \
+	fi
+	@echo "✅ Version format is valid: $(VERSION)" 
