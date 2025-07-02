@@ -370,39 +370,39 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ "${{ needs.lint-and-format.result }}" = "success" ]; then
-            echo "[32m[1m✔ Lint & Format: Passed[0m" >> $GITHUB_STEP_SUMMARY
+            echo "✔ Lint & Format: Passed" >> $GITHUB_STEP_SUMMARY
           else
-            echo "[31m✘ Lint & Format: Failed[0m" >> $GITHUB_STEP_SUMMARY
+            echo "✘ Lint & Format: Failed" >> $GITHUB_STEP_SUMMARY
           fi
 
           if [ "${{ needs.test.result }}" = "success" ]; then
-            echo "[32m✔ Tests: Passed[0m" >> $GITHUB_STEP_SUMMARY
+            echo "✔ Tests: Passed" >> $GITHUB_STEP_SUMMARY
           else
-            echo "[31m✘ Tests: Failed[0m" >> $GITHUB_STEP_SUMMARY
+            echo "✘ Tests: Failed" >> $GITHUB_STEP_SUMMARY
           fi
 
           if [ "${{ needs.build.result }}" = "success" ]; then
-            echo "[32m✔ Build: Passed[0m" >> $GITHUB_STEP_SUMMARY
+            echo "✔ Build: Passed" >> $GITHUB_STEP_SUMMARY
           else
-            echo "[31m✘ Build: Failed[0m" >> $GITHUB_STEP_SUMMARY
+            echo "✘ Build: Failed" >> $GITHUB_STEP_SUMMARY
           fi
 
           if [ "${{ needs.build-cross-platform.result }}" = "success" ]; then
-            echo "[32m✔ Cross-platform Build: Passed[0m" >> $GITHUB_STEP_SUMMARY
+            echo "✔ Cross-platform Build: Passed" >> $GITHUB_STEP_SUMMARY
           else
-            echo "[31m✘ Cross-platform Build: Failed[0m" >> $GITHUB_STEP_SUMMARY
+            echo "✘ Cross-platform Build: Failed" >> $GITHUB_STEP_SUMMARY
           fi
 
           if [ "${{ needs.integration-test.result }}" = "success" ]; then
-            echo "[32m✔ Integration Tests: Passed[0m" >> $GITHUB_STEP_SUMMARY
+            echo "✔ Integration Tests: Passed" >> $GITHUB_STEP_SUMMARY
           else
-            echo "[31m✘ Integration Tests: Failed[0m" >> $GITHUB_STEP_SUMMARY
+            echo "✘ Integration Tests: Failed" >> $GITHUB_STEP_SUMMARY
           fi
 
           if [ "${{ needs.security-scan.result }}" = "success" ]; then
-            echo "[32m✔ Security Scan: Passed[0m" >> $GITHUB_STEP_SUMMARY
+            echo "✔ Security Scan: Passed" >> $GITHUB_STEP_SUMMARY
           else
-            echo "[31m✘ Security Scan: Failed[0m" >> $GITHUB_STEP_SUMMARY
+            echo "✘ Security Scan: Failed" >> $GITHUB_STEP_SUMMARY
           fi
 
           # Add a note if Windows failed
