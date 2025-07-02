@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	"forgor/internal/config"
 	"forgor/internal/llm"
@@ -79,12 +78,23 @@ func init() {
 
 // runQuery processes a natural language query and generates a command
 func runQuery(query string) error {
+	// Set verbose environment variable for system detection timing
+	if verbose {
+		os.Setenv("FORGOR_VERBOSE", "true")
+	}
+
+	// Initialize timing for the entire operation
+	timer := utils.NewTimer("Command Execution", verbose)
+	defer timer.PrintSummary()
+
 	// Load configuration
+	configStep := timer.StartStep("Config Loading")
 	cfg, err := config.Load()
 	if err != nil {
+		configStep.EndWithResult("error - using defaults")
 		if verbose {
-			fmt.Printf("Error loading config: %v\n", err)
-			fmt.Println("💡 Run 'forgor config init' to create a default configuration")
+			fmt.Printf("%s Error loading config: %v\n", utils.Styled("[ERROR]", utils.StyleError), err)
+			fmt.Printf("%s Run 'forgor config init' to create a default configuration\n", utils.Styled("[TIP]", utils.StyleInfo))
 		}
 		// Create a minimal default config for basic functionality
 		cfg = &config.Config{
@@ -99,87 +109,89 @@ func runQuery(query string) error {
 				},
 			},
 		}
+	} else {
+		configStep.EndWithResult("success")
 	}
 
 	if verbose {
-		fmt.Printf("🔍 Processing query: %s\n", query)
-		fmt.Printf("📋 Using profile: %s\n", profile)
+		fmt.Printf("\n%s\n", utils.Divider("QUERY PROCESSING", utils.StyleInfo))
+		fmt.Printf("%s %s\n", utils.Styled("Query:", utils.StyleInfo), query)
+		fmt.Printf("%s %s\n", utils.Styled("Profile:", utils.StyleInfo), profile)
 	}
 
 	// Create LLM factory
+	providerStep := timer.StartStep("Provider Setup")
 	factory := llm.NewFactory(cfg)
 
 	// Get the provider
 	provider, err := factory.GetProvider(profile)
 	if err != nil {
+		providerStep.EndWithResult("error")
 		return fmt.Errorf("failed to get provider: %w", err)
 	}
+	providerStep.EndWithResult("success")
 
 	if verbose {
 		info := provider.GetProviderInfo()
-		fmt.Printf("🤖 Using %s with model %s\n", info.Name, info.Metadata["model"])
+		fmt.Printf("%s %s with model %s\n",
+			utils.Styled("Provider:", utils.StyleInfo),
+			utils.Styled(info.Name, utils.StyleHighlight),
+			utils.Styled(info.Metadata["model"], utils.StyleHighlight))
 	}
 
 	// Build request context
 	ctx := context.Background()
 
 	// Build enhanced context with tool detection
+	contextStep := timer.StartStep("System Context Building")
 	requestContext := llm.BuildContextFromSystem()
-	// TODO: Add command history when implemented
-	requestContext = llm.EnhanceContextWithHistory(requestContext, []string{})
+	contextStep.End()
 
-	request := &llm.Request{
+	// Add command history
+	historyStep := timer.StartStep("History Processing")
+	requestContext = llm.EnhanceContextWithHistory(requestContext, []string{})
+	historyStep.End()
+
+	if verbose {
+		fmt.Printf("\n%s\n", utils.Divider("SYSTEM CONTEXT", utils.StyleSubtle))
+		fmt.Printf("%s %s on %s (%s) in %s\n",
+			utils.Styled("Environment:", utils.StyleSubtle),
+			requestContext.Shell,
+			requestContext.OS,
+			requestContext.Architecture,
+			requestContext.WorkingDirectory)
+
+		toolSummary := utils.GetToolContextSummary()
+		fmt.Printf("%s %s\n", utils.Styled("Tools:", utils.StyleSubtle), toolSummary)
+	}
+
+	// Generate response
+	llmStep := timer.StartStep("LLM API Request")
+	response, err := provider.GenerateCommand(ctx, &llm.Request{
 		Query:   query,
 		Context: requestContext,
 		Options: llm.RequestOptions{
-			MaxTokens:          150,
-			Temperature:        0.1,
 			IncludeExplanation: explain,
-			SafetyLevel:        "moderate",
+			MaxTokens:          150,
 		},
-	}
-
-	// Override options from profile
-	if profileConfig, err := cfg.GetProfile(profile); err == nil {
-		if profileConfig.MaxTokens > 0 {
-			request.Options.MaxTokens = profileConfig.MaxTokens
-		}
-		if profileConfig.Temperature >= 0 {
-			request.Options.Temperature = profileConfig.Temperature
-		}
-	}
-
-	if verbose {
-		fmt.Printf("🌍 Context: %s on %s (%s) in %s\n",
-			request.Context.Shell, request.Context.OS, request.Context.Architecture, request.Context.WorkingDirectory)
-		if request.Context.ToolsSummary != "" {
-			fmt.Printf("🔧 Tools: %s\n", request.Context.ToolsSummary)
-		}
-	}
-
-	// Add timeout
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	// Generate command
-	var response *llm.Response
-	if explain {
-		// If explain flag is set and query looks like a command, explain it instead
-		if isLikelyCommand(query) {
-			response, err = provider.ExplainCommand(ctx, query)
-		} else {
-			response, err = provider.GenerateCommand(ctx, request)
-		}
-	} else {
-		response, err = provider.GenerateCommand(ctx, request)
-	}
+	})
 
 	if err != nil {
+		llmStep.EndWithResult("error")
 		return fmt.Errorf("failed to generate command: %w", err)
 	}
+	llmStep.EndWithResult("success")
 
-	// Display results
-	return displayResponse(response, explain)
+	// Display response
+	displayStep := timer.StartStep("Response Display")
+	err = displayResponse(response, explain)
+	if err != nil {
+		displayStep.EndWithResult("error")
+		return err
+	}
+	displayStep.EndWithResult("success")
+
+	return nil
 }
 
 // isLikelyCommand checks if the input looks like a shell command
@@ -203,9 +215,8 @@ func isLikelyCommand(input string) bool {
 func displayResponse(response *llm.Response, isExplanation bool) error {
 	// Handle explanation display
 	if isExplanation {
-		// Display explanation
-		fmt.Printf("📖 Command explanation:\n")
-		fmt.Printf("Command: %s\n\n", response.Command)
+		fmt.Printf("\n%s\n", utils.Box("COMMAND EXPLANATION", "", utils.StyleInfo))
+		fmt.Printf("%s %s\n\n", utils.Styled("Command:", utils.StyleCommand), response.Command)
 		fmt.Printf("%s\n", response.Explanation)
 
 		// If force-run is also enabled, continue to execution
@@ -216,36 +227,50 @@ func displayResponse(response *llm.Response, isExplanation bool) error {
 	} else {
 		// Display generated command with optional explanation
 		if explain && response.Explanation != "" {
-			fmt.Printf("💡 %s\n\n", response.Explanation)
+			fmt.Printf("\n%s %s\n", utils.Styled("Explanation:", utils.StyleInfo), response.Explanation)
 		}
 	}
 
 	// Show warnings if any
 	if len(response.Warnings) > 0 {
-		fmt.Printf("⚠️  Warnings:\n")
-		for _, warning := range response.Warnings {
-			fmt.Printf("  • %s\n", warning)
-		}
-		fmt.Println()
+		fmt.Printf("\n%s\n", utils.Divider("WARNINGS", utils.StyleWarning))
+		warningList := utils.List(response.Warnings, utils.StyleWarning)
+		fmt.Printf("%s\n", warningList)
 	}
 
 	// Show the command (unless we already showed it in explanation mode)
 	if !isExplanation {
-		fmt.Printf("%s\n", response.Command)
+		fmt.Printf("\n%s\n", utils.Divider("GENERATED COMMAND", utils.StyleCommand))
+		fmt.Printf("%s\n", utils.SimpleBox(response.Command, utils.StyleCommand))
 	}
 
 	// Save the command to cache for later use with 'forgor run'
 	if response.Command != "" {
 		if err := config.SaveLastCommand(response.Command); err != nil && verbose {
-			fmt.Printf("Warning: Failed to cache command: %v\n", err)
+			fmt.Printf("%s Failed to cache command: %v\n", utils.Styled("[WARNING]", utils.StyleWarning), err)
 		}
 	}
 
 	// Show confidence and usage info in verbose mode
 	if verbose {
-		fmt.Printf("\n📊 Confidence: %.1f%%\n", response.Confidence*100)
+		fmt.Printf("\n%s\n", utils.Divider("RESPONSE DETAILS", utils.StyleSubtle))
+
+		// Confidence
+		confidencePercent := response.Confidence * 100
+		confidenceStyle := utils.StyleSuccess
+		if confidencePercent < 70 {
+			confidenceStyle = utils.StyleWarning
+		} else if confidencePercent < 50 {
+			confidenceStyle = utils.StyleError
+		}
+		fmt.Printf("%s %s\n",
+			utils.Styled("Confidence:", utils.StyleSubtle),
+			utils.Styled(fmt.Sprintf("%.1f%%", confidencePercent), confidenceStyle))
+
+		// Token usage
 		if response.Usage != nil {
-			fmt.Printf("🔢 Tokens: %d prompt + %d completion = %d total\n",
+			fmt.Printf("%s %d prompt + %d completion = %d total\n",
+				utils.Styled("Tokens:", utils.StyleSubtle),
 				response.Usage.PromptTokens,
 				response.Usage.CompletionTokens,
 				response.Usage.TotalTokens)
@@ -254,14 +279,17 @@ func displayResponse(response *llm.Response, isExplanation bool) error {
 
 	// Handle command execution
 	if forceRun {
-		fmt.Printf("\n🚀 Executing command...\n")
+		fmt.Printf("\n%s\n", utils.Divider("EXECUTING COMMAND", utils.StyleCommand))
 		return executeCommand(response.Command, response.Warnings)
 	}
 
 	// Offer to run the command (don't show if we're in explanation mode and not force-running)
 	if !isExplanation && response.Command != "" {
-		fmt.Printf("\n💡 Run this command? Use 'forgor run' or 'ff -R \"%s\"'\n",
-			response.Command)
+		fmt.Printf("\n%s\n", utils.Divider("NEXT STEPS", utils.StyleInfo))
+		fmt.Printf("%s Use '%s' or '%s'\n",
+			utils.Styled("Run this command?", utils.StyleInfo),
+			utils.Styled("forgor run", utils.StyleCommand),
+			utils.Styled(fmt.Sprintf("ff -R \"%s\"", response.Command), utils.StyleCommand))
 	}
 
 	return nil

@@ -17,6 +17,7 @@ type Config struct {
 	History        HistoryConfig      `yaml:"history" mapstructure:"history"`
 	Security       SecurityConfig     `yaml:"security" mapstructure:"security"`
 	Output         OutputConfig       `yaml:"output" mapstructure:"output"`
+	CustomTools    CustomToolsConfig  `yaml:"custom_tools" mapstructure:"custom_tools"`
 }
 
 // Profile represents an LLM provider profile
@@ -39,6 +40,19 @@ type HistoryConfig struct {
 type SecurityConfig struct {
 	RedactSensitive bool     `yaml:"redact_sensitive" mapstructure:"redact_sensitive"`
 	Filters         []string `yaml:"filters" mapstructure:"filters"`
+}
+
+// CustomToolsConfig represents user-defined custom tools
+type CustomToolsConfig struct {
+	PackageManagers  []string `yaml:"package_managers" mapstructure:"package_managers"`
+	Languages        []string `yaml:"languages" mapstructure:"languages"`
+	DevelopmentTools []string `yaml:"development_tools" mapstructure:"development_tools"`
+	SystemCommands   []string `yaml:"system_commands" mapstructure:"system_commands"`
+	ContainerTools   []string `yaml:"container_tools" mapstructure:"container_tools"`
+	CloudTools       []string `yaml:"cloud_tools" mapstructure:"cloud_tools"`
+	DatabaseTools    []string `yaml:"database_tools" mapstructure:"database_tools"`
+	NetworkTools     []string `yaml:"network_tools" mapstructure:"network_tools"`
+	Other            []string `yaml:"other" mapstructure:"other"`
 }
 
 // OutputConfig represents output formatting configuration

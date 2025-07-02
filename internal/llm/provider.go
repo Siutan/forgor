@@ -141,13 +141,36 @@ const (
 	DangerLevelCritical DangerLevel = "critical" // Critical risks, very dangerous
 )
 
-// DangerAssessment contains the result of danger analysis
+// GetDangerLevelValue returns the numeric value for danger level comparison
+func GetDangerLevelValue(level DangerLevel) int {
+	switch level {
+	case DangerLevelSafe:
+		return 0
+	case DangerLevelLow:
+		return 1
+	case DangerLevelMedium:
+		return 2
+	case DangerLevelHigh:
+		return 3
+	case DangerLevelCritical:
+		return 4
+	default:
+		return 0 // Default to safe
+	}
+}
+
+// IsAtLeastLevel checks if the current danger level is at least the specified level
+func (d DangerLevel) IsAtLeastLevel(level DangerLevel) bool {
+	return GetDangerLevelValue(d) >= GetDangerLevelValue(level)
+}
+
+// DangerAssessment contains the result of command danger analysis
 type DangerAssessment struct {
 	Level       DangerLevel `json:"level"`
-	Confidence  float64     `json:"confidence"`  // Confidence in the assessment (0.0 to 1.0)
-	Reason      string      `json:"reason"`      // Human-readable reason
-	Factors     []string    `json:"factors"`     // List of risk factors detected
-	Mitigations []string    `json:"mitigations"` // Suggested risk mitigations
+	Confidence  float64     `json:"confidence"`
+	Reason      string      `json:"reason"`
+	Factors     []string    `json:"factors,omitempty"`
+	Mitigations []string    `json:"mitigations,omitempty"`
 }
 
 // Usage represents token usage information

@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"forgor/internal/config"
 	"forgor/internal/llm"
 	"forgor/internal/security"
 	"forgor/internal/utils"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -16,6 +18,9 @@ import (
 var (
 	runForce bool
 	runQuiet bool
+
+	// ErrCommandCancelled indicates the user cancelled command execution
+	ErrCommandCancelled = errors.New("command execution cancelled by user")
 )
 
 // runCmd represents the run command
@@ -47,7 +52,9 @@ Examples:
 			}
 
 			if !runQuiet {
-				fmt.Printf("📋 Using last generated command: %s\n", command)
+				fmt.Printf("%s %s\n",
+					utils.Styled("Using last generated command:", utils.StyleInfo),
+					utils.Styled(command, utils.StyleCommand))
 			}
 		} else {
 			// Command provided as argument
@@ -94,36 +101,40 @@ func executeCommandEnhanced(command string) error {
 
 	// Show danger assessment
 	if assessment.Level != llm.DangerLevelSafe {
-		icon := getDangerIcon(assessment.Level)
-		fmt.Printf("%s %s DANGER LEVEL: %s\n", icon,
-			strings.ToUpper(string(assessment.Level)), assessment.Reason)
+		dangerIcon := utils.DangerIcon(string(assessment.Level))
+		fmt.Printf("\n%s\n", utils.Divider("SECURITY ASSESSMENT", utils.StyleWarning))
+		fmt.Printf("%s %s\n", dangerIcon,
+			utils.Styled(strings.ToUpper(string(assessment.Level))+" DANGER LEVEL", utils.StyleWarning))
+		fmt.Printf("%s %s\n", utils.Styled("Reason:", utils.StyleSubtle), assessment.Reason)
 
 		if len(assessment.Factors) > 0 {
-			fmt.Printf("⚠️  Risk factors:\n")
-			for _, factor := range assessment.Factors {
-				fmt.Printf("  • %s\n", factor)
-			}
+			fmt.Printf("\n%s\n", utils.Styled("Risk Factors:", utils.StyleWarning))
+			factorList := utils.List(assessment.Factors, utils.StyleWarning)
+			fmt.Printf("%s\n", factorList)
 		}
 
 		if len(assessment.Mitigations) > 0 {
-			fmt.Printf("💡 Safety recommendations:\n")
-			for _, mitigation := range assessment.Mitigations {
-				fmt.Printf("  • %s\n", mitigation)
-			}
+			fmt.Printf("\n%s\n", utils.Styled("Safety Recommendations:", utils.StyleInfo))
+			mitigationList := utils.List(assessment.Mitigations, utils.StyleInfo)
+			fmt.Printf("%s\n", mitigationList)
 		}
 		fmt.Println()
 	}
 
 	// Enhanced safety checks based on danger level
-	if assessment.Level >= llm.DangerLevelMedium && !runForce {
+	if assessment.Level.IsAtLeastLevel(llm.DangerLevelMedium) && !runForce {
 		if err := handleDangerousExecution(command, assessment); err != nil {
+			if errors.Is(err, ErrCommandCancelled) {
+				return nil // User cancelled, not an error
+			}
 			return err
 		}
 	} else if !runForce {
 		// For low/safe commands, still ask for confirmation unless forced
 		if !runQuiet {
-			fmt.Printf("Execute: %s\n", command)
-			fmt.Printf("Continue? [Y/n]: ")
+			fmt.Printf("\n%s\n", utils.Divider("CONFIRMATION", utils.StyleInfo))
+			fmt.Printf("%s %s\n", utils.Styled("Execute:", utils.StyleCommand), command)
+			fmt.Printf("%s ", utils.Styled("Continue? [Y/n]:", utils.StyleInfo))
 
 			reader := bufio.NewReader(os.Stdin)
 			response, err := reader.ReadString('\n')
@@ -133,25 +144,61 @@ func executeCommandEnhanced(command string) error {
 
 			response = strings.TrimSpace(strings.ToLower(response))
 			if response != "" && response != "y" && response != "yes" {
-				fmt.Printf("❌ Command execution cancelled\n")
+				fmt.Printf("%s Command execution cancelled\n", utils.Styled("[CANCELLED]", utils.StyleError))
 				return nil
 			}
 		}
 	}
 
-	// Execute the command using the standard execution logic
-	return executeCommand(command, assessment.Factors)
+	// Show warnings again before execution
+	if len(assessment.Factors) > 0 && !runQuiet {
+		fmt.Printf("\n%s\n", utils.Styled("Final Warnings:", utils.StyleWarning))
+		factorList := utils.List(assessment.Factors, utils.StyleWarning)
+		fmt.Printf("%s\n", factorList)
+	}
+
+	// Execute the command directly
+	if !runQuiet {
+		fmt.Printf("\n%s\n", utils.Divider("EXECUTION", utils.StyleCommand))
+		fmt.Printf("%s %s\n", utils.Styled("Executing:", utils.StyleCommand), command)
+		fmt.Printf("%s\n", utils.Divider("", utils.StyleSubtle))
+	}
+
+	cmd := exec.Command(utils.GetCurrentShell(), "-c", command)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	err := cmd.Run()
+
+	if !runQuiet {
+		fmt.Printf("%s\n", utils.Divider("", utils.StyleSubtle))
+	}
+
+	if err != nil {
+		fmt.Printf("%s Command failed: %v\n", utils.Styled("[ERROR]", utils.StyleError), err)
+		return err
+	}
+
+	if !runQuiet {
+		fmt.Printf("%s Command completed successfully\n", utils.Styled("[SUCCESS]", utils.StyleSuccess))
+	}
+
+	return nil
 }
 
 // handleDangerousExecution handles execution confirmation for dangerous commands
 func handleDangerousExecution(command string, assessment llm.DangerAssessment) error {
-	icon := getDangerIcon(assessment.Level)
-	fmt.Printf("%s %s COMMAND DETECTED!\n", icon, strings.ToUpper(string(assessment.Level)))
-	fmt.Printf("Command: %s\n", command)
-	fmt.Printf("Reason: %s\n\n", assessment.Reason)
+	dangerIcon := utils.DangerIcon(string(assessment.Level))
 
-	if assessment.Level >= llm.DangerLevelHigh {
-		fmt.Printf("This command may be destructive. Type 'YES I UNDERSTAND THE RISKS' to confirm: ")
+	fmt.Printf("\n%s\n", utils.Box("DANGEROUS COMMAND DETECTED", "", utils.StyleDanger))
+	fmt.Printf("%s %s\n", dangerIcon,
+		utils.Styled(strings.ToUpper(string(assessment.Level))+" COMMAND DETECTED!", utils.StyleDanger))
+	fmt.Printf("%s %s\n", utils.Styled("Command:", utils.StyleCommand), command)
+	fmt.Printf("%s %s\n\n", utils.Styled("Reason:", utils.StyleSubtle), assessment.Reason)
+
+	if assessment.Level.IsAtLeastLevel(llm.DangerLevelHigh) {
+		fmt.Printf("%s ", utils.Styled("This command may be destructive. Type 'YES I UNDERSTAND THE RISKS' to confirm:", utils.StyleDanger))
 
 		reader := bufio.NewReader(os.Stdin)
 		response, err := reader.ReadString('\n')
@@ -160,11 +207,11 @@ func handleDangerousExecution(command string, assessment llm.DangerAssessment) e
 		}
 
 		if strings.TrimSpace(response) != "YES I UNDERSTAND THE RISKS" {
-			fmt.Printf("❌ Command execution cancelled\n")
-			return nil
+			fmt.Printf("%s Command execution cancelled\n", utils.Styled("[CANCELLED]", utils.StyleError))
+			return ErrCommandCancelled
 		}
 	} else {
-		fmt.Printf("Continue? (type 'yes' to confirm): ")
+		fmt.Printf("%s ", utils.Styled("Continue? (type 'yes' to confirm):", utils.StyleWarning))
 
 		reader := bufio.NewReader(os.Stdin)
 		response, err := reader.ReadString('\n')
@@ -173,8 +220,8 @@ func handleDangerousExecution(command string, assessment llm.DangerAssessment) e
 		}
 
 		if strings.TrimSpace(strings.ToLower(response)) != "yes" {
-			fmt.Printf("❌ Command execution cancelled\n")
-			return nil
+			fmt.Printf("%s Command execution cancelled\n", utils.Styled("[CANCELLED]", utils.StyleError))
+			return ErrCommandCancelled
 		}
 	}
 

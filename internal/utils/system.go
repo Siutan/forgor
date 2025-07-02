@@ -1,11 +1,18 @@
 package utils
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -53,46 +60,419 @@ type Tool struct {
 var (
 	systemContextCache *SystemContext
 	contextCacheMutex  sync.RWMutex
-	cacheExpiration    = 5 * time.Minute
+	cacheExpiration    = 20 * time.Minute
+	cacheTimestamp     time.Time
+
+	// Background refresh control
+	refreshInProgress        int32 // atomic flag
+	backgroundRefreshEnabled = true
+	gracePeriod              = 1 * time.Minute // Grace period to use stale cache while refreshing
+
+	// Persistent cache settings
+	cacheDir      string
+	cacheFile     string
+	lockFile      string
+	initCacheOnce sync.Once
 )
 
-// GetSystemContext returns comprehensive system context information
+// CachedSystemContext represents the persistent cache structure
+type CachedSystemContext struct {
+	Context   *SystemContext `json:"context"`
+	Timestamp time.Time      `json:"timestamp"`
+	Version   string         `json:"version"`
+}
+
+// CacheInfo represents information about the persistent cache
+type CacheInfo struct {
+	CacheDir    string    `json:"cache_dir"`
+	FilePath    string    `json:"file_path"`
+	LockFile    string    `json:"lock_file"`
+	FileExists  bool      `json:"file_exists"`
+	FileSize    int64     `json:"file_size"`
+	FileModTime time.Time `json:"file_mod_time"`
+}
+
+// initPersistentCache initializes the persistent cache directory and file paths
+func initPersistentCache() error {
+	var err error
+	initCacheOnce.Do(func() {
+		// Get user cache directory
+		var userCacheDir string
+		if xdgCache := os.Getenv("XDG_CACHE_HOME"); xdgCache != "" {
+			userCacheDir = xdgCache
+		} else {
+			var homeDir string
+			if currentUser, userErr := user.Current(); userErr == nil {
+				homeDir = currentUser.HomeDir
+			} else {
+				homeDir = os.Getenv("HOME")
+			}
+			userCacheDir = filepath.Join(homeDir, ".cache")
+		}
+
+		cacheDir = filepath.Join(userCacheDir, "forgor")
+		cacheFile = filepath.Join(cacheDir, "system-context.json")
+		lockFile = filepath.Join(cacheDir, "system-context.lock")
+
+		// Create cache directory if it doesn't exist
+		err = os.MkdirAll(cacheDir, 0755)
+	})
+	return err
+}
+
+// loadPersistentCache loads the system context from persistent cache
+func loadPersistentCache() (*SystemContext, error) {
+	if err := initPersistentCache(); err != nil {
+		return nil, fmt.Errorf("failed to initialize cache: %w", err)
+	}
+
+	// Check if cache file exists
+	if _, err := os.Stat(cacheFile); os.IsNotExist(err) {
+		return nil, nil // No cache file
+	}
+
+	// Acquire read lock
+	lockFd, err := acquireFileLock(lockFile, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to acquire lock: %w", err)
+	}
+	defer releaseFileLock(lockFd)
+
+	// Read cache file
+	data, err := os.ReadFile(cacheFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read cache file: %w", err)
+	}
+
+	// Parse cache
+	var cached CachedSystemContext
+	if err := json.Unmarshal(data, &cached); err != nil {
+		return nil, fmt.Errorf("failed to parse cache: %w", err)
+	}
+
+	// Validate cache version and age
+	if cached.Version != "1.0" {
+		return nil, fmt.Errorf("cache version mismatch")
+	}
+
+	age := time.Since(cached.Timestamp)
+	if age > cacheExpiration+gracePeriod {
+		return nil, fmt.Errorf("cache too old: %v", age)
+	}
+
+	// Update in-memory cache
+	contextCacheMutex.Lock()
+	systemContextCache = cached.Context
+	cacheTimestamp = cached.Timestamp
+	contextCacheMutex.Unlock()
+
+	return cached.Context, nil
+}
+
+// savePersistentCache saves the system context to persistent cache
+func savePersistentCache(context *SystemContext) error {
+	if err := initPersistentCache(); err != nil {
+		return fmt.Errorf("failed to initialize cache: %w", err)
+	}
+
+	// Acquire write lock
+	lockFd, err := acquireFileLock(lockFile, true)
+	if err != nil {
+		return fmt.Errorf("failed to acquire lock: %w", err)
+	}
+	defer releaseFileLock(lockFd)
+
+	// Create cache structure
+	cached := CachedSystemContext{
+		Context:   context,
+		Timestamp: time.Now(),
+		Version:   "1.0",
+	}
+
+	// Marshal to JSON
+	data, err := json.MarshalIndent(cached, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal cache: %w", err)
+	}
+
+	// Write to temporary file first
+	tempFile := cacheFile + ".tmp"
+	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write temp cache: %w", err)
+	}
+
+	// Atomic rename
+	if err := os.Rename(tempFile, cacheFile); err != nil {
+		os.Remove(tempFile) // Cleanup temp file
+		return fmt.Errorf("failed to update cache: %w", err)
+	}
+
+	return nil
+}
+
+// acquireFileLock acquires a file lock (exclusive if write=true, shared if write=false)
+func acquireFileLock(lockFile string, write bool) (*os.File, error) {
+	// Create lock file if it doesn't exist
+	lockFd, err := os.OpenFile(lockFile, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return nil, err
+	}
+
+	// Determine lock type
+	lockType := syscall.LOCK_SH // Shared lock for read
+	if write {
+		lockType = syscall.LOCK_EX // Exclusive lock for write
+	}
+
+	// Try to acquire lock with timeout
+	lockType |= syscall.LOCK_NB // Non-blocking
+
+	for i := 0; i < 50; i++ { // Try for up to 5 seconds
+		if err := syscall.Flock(int(lockFd.Fd()), lockType); err == nil {
+			return lockFd, nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	lockFd.Close()
+	return nil, fmt.Errorf("timeout acquiring file lock")
+}
+
+// releaseFileLock releases a file lock
+func releaseFileLock(lockFd *os.File) {
+	if lockFd != nil {
+		syscall.Flock(int(lockFd.Fd()), syscall.LOCK_UN)
+		lockFd.Close()
+	}
+}
+
+// GetSystemContext returns comprehensive system information with persistent caching
 func GetSystemContext() *SystemContext {
+	verbose := isVerboseMode()
+
+	// First check in-memory cache
 	contextCacheMutex.RLock()
-	if systemContextCache != nil && time.Since(systemContextCache.Tools.LastChecked) < cacheExpiration {
+	if systemContextCache != nil && time.Since(cacheTimestamp) < cacheExpiration {
 		defer contextCacheMutex.RUnlock()
 		return systemContextCache
 	}
 	contextCacheMutex.RUnlock()
 
+	// Try to load from persistent cache
+	if cached, err := loadPersistentCache(); err == nil && cached != nil {
+		age := time.Since(cacheTimestamp)
+		if verbose {
+			fmt.Printf("📁 Loaded system context from cache (age: %v)\n", age)
+		}
+
+		// Check if we should trigger background refresh
+		if age > cacheExpiration && backgroundRefreshEnabled {
+			if atomic.CompareAndSwapInt32(&refreshInProgress, 0, 1) {
+				go func() {
+					defer atomic.StoreInt32(&refreshInProgress, 0)
+					if verbose {
+						fmt.Printf("🔄 Refreshing system context in background...\n")
+					}
+					refreshSystemContextInternal(false) // silent refresh
+				}()
+			}
+		}
+
+		return cached
+	}
+
+	// No valid cache - must refresh synchronously
+	if verbose {
+		fmt.Printf("🔍 Building system context (no valid cache found)...\n")
+	}
+
+	return refreshSystemContextInternal(verbose)
+}
+
+// refreshSystemContextInternal performs the actual cache refresh
+func refreshSystemContextInternal(verbose bool) *SystemContext {
 	contextCacheMutex.Lock()
 	defer contextCacheMutex.Unlock()
 
 	// Double-check after acquiring write lock
-	if systemContextCache != nil && time.Since(systemContextCache.Tools.LastChecked) < cacheExpiration {
+	if systemContextCache != nil && time.Since(cacheTimestamp) < cacheExpiration {
 		return systemContextCache
 	}
 
-	systemContextCache = buildSystemContext()
+	var timer *Timer
+	if verbose {
+		timer = NewTimer("System Context", verbose)
+		defer timer.PrintSummary()
+	}
+
+	// Get user information
+	var userStep *StepTimer
+	if verbose && timer != nil {
+		userStep = timer.StartStep("User Detection")
+	}
+
+	currentUser, err := user.Current()
+	var username, homeDir string
+	if err == nil {
+		username = currentUser.Username
+		homeDir = currentUser.HomeDir
+	} else {
+		username = os.Getenv("USER")
+		homeDir = os.Getenv("HOME")
+	}
+
+	if userStep != nil {
+		userStep.End()
+	}
+
+	// Get working directory
+	var dirStep *StepTimer
+	if verbose && timer != nil {
+		dirStep = timer.StartStep("Directory Detection")
+	}
+
+	wd, _ := os.Getwd()
+
+	if dirStep != nil {
+		dirStep.End()
+	}
+
+	// Detect tools
+	var toolsStep *StepTimer
+	if verbose && timer != nil {
+		toolsStep = timer.StartStep("Tool Detection")
+	}
+
+	tools := gatherToolContext()
+
+	if toolsStep != nil {
+		toolsStep.End()
+	}
+
+	// Build the context
+	var buildStep *StepTimer
+	if verbose && timer != nil {
+		buildStep = timer.StartStep("Context Assembly")
+	}
+
+	systemContextCache = &SystemContext{
+		OS:               runtime.GOOS,
+		Architecture:     runtime.GOARCH,
+		Shell:            GetCurrentShell(),
+		User:             username,
+		HomeDirectory:    homeDir,
+		WorkingDirectory: wd,
+		Environment:      getRelevantEnvironment(),
+		Tools:            tools,
+	}
+
+	if buildStep != nil {
+		buildStep.End()
+	}
+
+	cacheTimestamp = time.Now()
+
+	// Save to persistent cache
+	var saveStep *StepTimer
+	if verbose && timer != nil {
+		saveStep = timer.StartStep("Cache Save")
+	}
+
+	if err := savePersistentCache(systemContextCache); err != nil {
+		if verbose {
+			fmt.Printf("⚠️  Failed to save cache: %v\n", err)
+		}
+	} else if verbose {
+		fmt.Printf("💾 Saved system context to persistent cache\n")
+	}
+
+	if saveStep != nil {
+		saveStep.End()
+	}
+
 	return systemContextCache
 }
 
-// buildSystemContext creates a comprehensive system context
-func buildSystemContext() *SystemContext {
-	context := &SystemContext{
-		OS:               GetOperatingSystem(),
-		Shell:            GetCurrentShell(),
-		Architecture:     runtime.GOARCH,
-		WorkingDirectory: GetWorkingDirectory(),
-		User:             os.Getenv("USER"),
-		HomeDirectory:    getHomeDirectory(),
-		Environment:      getRelevantEnvironment(),
+// RefreshSystemContext forces a refresh of the system context cache
+func RefreshSystemContext() *SystemContext {
+	if isVerboseMode() {
+		fmt.Printf("🔄 Forcing system context refresh...\n")
 	}
 
-	// Gather tool context
-	context.Tools = gatherToolContext()
+	contextCacheMutex.Lock()
+	// Force cache expiry
+	cacheTimestamp = time.Time{}
+	systemContextCache = nil
+	contextCacheMutex.Unlock()
 
-	return context
+	return refreshSystemContextInternal(isVerboseMode())
+}
+
+// RefreshSystemContextBackground triggers a background refresh without blocking
+func RefreshSystemContextBackground() {
+	if atomic.CompareAndSwapInt32(&refreshInProgress, 0, 1) {
+		go func() {
+			defer atomic.StoreInt32(&refreshInProgress, 0)
+			if isVerboseMode() {
+				fmt.Printf("🔄 Starting background system context refresh...\n")
+			}
+			refreshSystemContextInternal(false)
+			if isVerboseMode() {
+				fmt.Printf("✅ Background system context refresh completed\n")
+			}
+		}()
+	} else if isVerboseMode() {
+		fmt.Printf("⏳ Background refresh already in progress\n")
+	}
+}
+
+// IsRefreshInProgress returns true if a background refresh is currently running
+func IsRefreshInProgress() bool {
+	return atomic.LoadInt32(&refreshInProgress) == 1
+}
+
+// SetBackgroundRefreshEnabled enables or disables background refreshing
+func SetBackgroundRefreshEnabled(enabled bool) {
+	backgroundRefreshEnabled = enabled
+}
+
+// GetCacheAge returns how old the current cache is
+func GetCacheAge() time.Duration {
+	// First check in-memory cache without holding lock during external calls
+	contextCacheMutex.RLock()
+	hasInMemoryCache := systemContextCache != nil && !cacheTimestamp.IsZero()
+	var memoryAge time.Duration
+	if hasInMemoryCache {
+		memoryAge = time.Since(cacheTimestamp)
+	}
+	contextCacheMutex.RUnlock()
+
+	if hasInMemoryCache {
+		return memoryAge
+	}
+
+	// No in-memory cache, try to check persistent cache without loading it
+	if err := initPersistentCache(); err != nil {
+		return 0
+	}
+
+	// Check if cache file exists and get its age
+	if _, err := os.Stat(cacheFile); err == nil {
+		// Read the cache file to get timestamp without loading into memory
+		data, err := os.ReadFile(cacheFile)
+		if err != nil {
+			return 0
+		}
+
+		var cached CachedSystemContext
+		if err := json.Unmarshal(data, &cached); err != nil {
+			return 0
+		}
+
+		return time.Since(cached.Timestamp)
+	}
+
+	return 0
 }
 
 // gatherToolContext detects available tools and capabilities
@@ -374,7 +754,7 @@ func isCommandAvailable(command string) bool {
 	return err == nil
 }
 
-// getLanguageVersion attempts to get the version of a language runtime
+// getLanguageVersion attempts to get the version of a language runtime with timeout
 func getLanguageVersion(language, command string) string {
 	versionArgs := map[string][]string{
 		"python": {"--version"},
@@ -398,7 +778,11 @@ func getLanguageVersion(language, command string) string {
 		args = []string{"--version"}
 	}
 
-	cmd := exec.Command(command, args...)
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, command, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "unknown"
@@ -414,14 +798,18 @@ func getLanguageVersion(language, command string) string {
 	return "unknown"
 }
 
-// getToolVersion attempts to get the version of a tool
+// getToolVersion attempts to get the version of a tool with timeout
 func getToolVersion(tool string) string {
 	// Try common version flags
 	versionFlags := []string{"--version", "-version", "-V", "-v", "version"}
 
 	for _, flag := range versionFlags {
-		cmd := exec.Command(tool, flag)
+		// Create context with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		cmd := exec.CommandContext(ctx, tool, flag)
 		output, err := cmd.CombinedOutput()
+		cancel() // Clean up immediately after each attempt
+
 		if err == nil {
 			version := strings.TrimSpace(string(output))
 			lines := strings.Split(version, "\n")
@@ -505,11 +893,63 @@ func IsToolAvailable(tool string) bool {
 	return exists && available
 }
 
-// RefreshSystemContext forces a refresh of the system context cache
-func RefreshSystemContext() *SystemContext {
-	contextCacheMutex.Lock()
-	defer contextCacheMutex.Unlock()
+// isVerboseMode checks if verbose mode is enabled from environment or context
+func isVerboseMode() bool {
+	// Check environment variable
+	return os.Getenv("FORGOR_VERBOSE") == "true"
+}
 
-	systemContextCache = buildSystemContext()
-	return systemContextCache
+// GetCacheInfo returns information about the persistent cache
+func GetCacheInfo() CacheInfo {
+	if err := initPersistentCache(); err != nil {
+		return CacheInfo{}
+	}
+
+	info := CacheInfo{
+		CacheDir: cacheDir,
+		FilePath: cacheFile,
+		LockFile: lockFile,
+	}
+
+	if stat, err := os.Stat(cacheFile); err == nil {
+		info.FileExists = true
+		info.FileSize = stat.Size()
+		info.FileModTime = stat.ModTime()
+	}
+
+	return info
+}
+
+// ClearPersistentCache removes the persistent cache file
+func ClearPersistentCache() error {
+	if err := initPersistentCache(); err != nil {
+		return fmt.Errorf("failed to initialize cache: %w", err)
+	}
+
+	// Acquire write lock to ensure safe deletion
+	lockFd, err := acquireFileLock(lockFile, true)
+	if err != nil {
+		return fmt.Errorf("failed to acquire lock: %w", err)
+	}
+	defer releaseFileLock(lockFd)
+
+	// Clear in-memory cache
+	contextCacheMutex.Lock()
+	systemContextCache = nil
+	cacheTimestamp = time.Time{}
+	contextCacheMutex.Unlock()
+
+	// Remove cache file if it exists
+	if _, err := os.Stat(cacheFile); err == nil {
+		if err := os.Remove(cacheFile); err != nil {
+			return fmt.Errorf("failed to remove cache file: %w", err)
+		}
+	}
+
+	// Remove temp files if they exist
+	if _, err := os.Stat(cacheFile + ".tmp"); err == nil {
+		os.Remove(cacheFile + ".tmp")
+	}
+
+	return nil
 }

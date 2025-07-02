@@ -6,7 +6,33 @@ import (
 
 // BuildContextFromSystem creates an enhanced Context using system detection
 func BuildContextFromSystem() Context {
-	systemCtx := utils.GetSystemContext()
+	// Note: Timing is handled by caller in cmd/root.go
+	return BuildContextFromSystemWithTiming(false)
+}
+
+// BuildContextFromSystemWithTiming creates an enhanced Context with optional detailed timing
+func BuildContextFromSystemWithTiming(verbose bool) Context {
+	var timer *utils.Timer
+	if verbose {
+		timer = utils.NewTimer("Context Building", verbose)
+		defer timer.PrintSummary()
+	}
+
+	// Get system context with timing
+	var systemCtx *utils.SystemContext
+	if verbose && timer != nil {
+		systemStep := timer.StartStep("System Detection")
+		systemCtx = utils.GetSystemContext()
+		systemStep.End()
+	} else {
+		systemCtx = utils.GetSystemContext()
+	}
+
+	// Build base context
+	var contextStep *utils.StepTimer
+	if verbose && timer != nil {
+		contextStep = timer.StartStep("Context Assembly")
+	}
 
 	context := Context{
 		OS:               systemCtx.OS,
@@ -40,6 +66,10 @@ func BuildContextFromSystem() Context {
 	context.CloudTools = systemCtx.Tools.CloudTools
 	context.DatabaseTools = systemCtx.Tools.DatabaseTools
 	context.NetworkTools = systemCtx.Tools.NetworkTools
+
+	if contextStep != nil {
+		contextStep.End()
+	}
 
 	return context
 }

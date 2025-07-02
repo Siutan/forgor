@@ -122,6 +122,15 @@ func (d *DangerDetector) assessContext(command string, context *llm.Context, bas
 		}
 	}
 
+	// Network operations in sensitive contexts
+	if strings.Contains(command, "curl") || strings.Contains(command, "wget") {
+		if !assessment.Level.IsAtLeastLevel(llm.DangerLevelHigh) {
+			assessment.Level = llm.DangerLevelHigh
+		}
+		assessment.Factors = append(assessment.Factors, "Downloads data from external sources")
+		assessment.Mitigations = append(assessment.Mitigations, "Verify the source URL is trusted")
+	}
+
 	return assessment
 }
 
@@ -166,7 +175,7 @@ func (d *DangerDetector) assessHeuristics(command string, context *llm.Context, 
 
 	// Wildcard with destructive commands
 	if strings.Contains(command, "rm") && (strings.Contains(command, "*") || strings.Contains(command, "/*")) {
-		if assessment.Level < llm.DangerLevelHigh {
+		if !assessment.Level.IsAtLeastLevel(llm.DangerLevelHigh) {
 			assessment.Level = llm.DangerLevelHigh
 		}
 		assessment.Factors = append(assessment.Factors, "Wildcard deletion")
