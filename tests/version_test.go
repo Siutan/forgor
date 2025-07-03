@@ -27,21 +27,21 @@ func TestNewTimer(t *testing.T) {
 
 func TestTimerAddStep(t *testing.T) {
 	timer := utils.NewTimer("test", false)
-	
+
 	// Add a step manually
 	startTime := time.Now()
 	duration := time.Millisecond * 100
 	timer.AddStep("test step", duration, startTime)
-	
+
 	summary := timer.GetSummary()
 	if len(summary.Steps) != 1 {
 		t.Errorf("Expected 1 step, got %d", len(summary.Steps))
 	}
-	
+
 	if summary.Steps[0].Name != "test step" {
 		t.Errorf("Expected step name 'test step', got '%s'", summary.Steps[0].Name)
 	}
-	
+
 	if summary.Steps[0].Duration != duration {
 		t.Errorf("Expected duration %v, got %v", duration, summary.Steps[0].Duration)
 	}
