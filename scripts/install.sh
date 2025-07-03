@@ -19,20 +19,25 @@ NC='\033[0m' # No Color
 
 # Helper functions
 log() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+    printf "${BLUE}[INFO]${NC} %s\n" "$1"
 }
 
 warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
+    printf "${YELLOW}[WARN]${NC} %s\n" "$1"
 }
 
 error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    printf "${RED}[ERROR]${NC} %s\n" "$1"
     exit 1
 }
 
 success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+    printf "${GREEN}[SUCCESS]${NC} %s\n" "$1"
+}
+
+# Check if running in interactive mode
+is_interactive() {
+    [ -t 0 ] && [ -t 1 ]
 }
 
 # Compare two semantic versions
@@ -200,18 +205,24 @@ check_existing() {
         
         if [ "$current_version" = "unknown" ]; then
             warn "$BINARY_NAME is already installed but version could not be determined"
-            echo -n "Do you want to reinstall? [y/N]: "
-            read -r response
-            case "$response" in
-                [yY][eE][sS]|[yY]) 
-                    log "Proceeding with reinstallation..."
-                    return 0
-                    ;;
-                *)
-                    log "Installation cancelled."
-                    exit 0
-                    ;;
-            esac
+            
+            if is_interactive; then
+                printf "Do you want to reinstall? [y/N]: "
+                read -r response
+                case "$response" in
+                    [yY][eE][sS]|[yY]) 
+                        log "Proceeding with reinstallation..."
+                        return 0
+                        ;;
+                    *)
+                        log "Installation cancelled."
+                        exit 0
+                        ;;
+                esac
+            else
+                log "Non-interactive mode detected. Proceeding with reinstallation..."
+                return 0
+            fi
         fi
         
         log "Current version: $current_version"
@@ -228,35 +239,47 @@ check_existing() {
                 ;;
             1)
                 log "A newer version ($latest_version) is available!"
-                echo -n "Do you want to update from $current_version to $latest_version? [Y/n]: "
-                read -r response
-                case "$response" in
-                    [nN][oO]|[nN])
-                        log "Update cancelled."
-                        exit 0
-                        ;;
-                    *)
-                        log "Proceeding with update..."
-                        return 0
-                        ;;
-                esac
+                
+                if is_interactive; then
+                    printf "Do you want to update from $current_version to $latest_version? [Y/n]: "
+                    read -r response
+                    case "$response" in
+                        [nN][oO]|[nN])
+                            log "Update cancelled."
+                            exit 0
+                            ;;
+                        *)
+                            log "Proceeding with update..."
+                            return 0
+                            ;;
+                    esac
+                else
+                    log "Non-interactive mode detected. Proceeding with update..."
+                    return 0
+                fi
                 ;;
             2)
                 warn "Current version ($current_version) is newer than latest release ($latest_version)"
-                echo -n "Do you want to downgrade to $latest_version? [y/N]: "
-                read -r response
-                case "$response" in
-                    [yY][eE][sS]|[yY])
-                        log "Proceeding with downgrade..."
-                        return 0
-                        ;;
-                                         *)
-                         log "Installation cancelled."
-                         exit 0
-                         ;;
-                 esac
-                 ;;
-         esac
+                
+                if is_interactive; then
+                    printf "Do you want to downgrade to $latest_version? [y/N]: "
+                    read -r response
+                    case "$response" in
+                        [yY][eE][sS]|[yY])
+                            log "Proceeding with downgrade..."
+                            return 0
+                            ;;
+                        *)
+                            log "Installation cancelled."
+                            exit 0
+                            ;;
+                    esac
+                else
+                    log "Non-interactive mode detected. Skipping downgrade."
+                    exit 0
+                fi
+                ;;
+        esac
     fi
 }
 
