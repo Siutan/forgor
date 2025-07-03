@@ -1,23 +1,24 @@
-package llm
+package tests
 
 import (
+	"forgor/internal/llm"
 	"testing"
 )
 
 func TestDangerLevel(t *testing.T) {
 	tests := []struct {
-		level DangerLevel
+		level llm.DangerLevel
 		value int
 	}{
-		{DangerLevelSafe, 0},
-		{DangerLevelLow, 1},
-		{DangerLevelMedium, 2},
-		{DangerLevelHigh, 3},
-		{DangerLevelCritical, 4},
+		{llm.DangerLevelSafe, 0},
+		{llm.DangerLevelLow, 1},
+		{llm.DangerLevelMedium, 2},
+		{llm.DangerLevelHigh, 3},
+		{llm.DangerLevelCritical, 4},
 	}
 
 	for _, test := range tests {
-		result := GetDangerLevelValue(test.level)
+		result := llm.GetDangerLevelValue(test.level)
 		if result != test.value {
 			t.Errorf("GetDangerLevelValue(%v) = %d; want %d", test.level, result, test.value)
 		}
@@ -26,26 +27,26 @@ func TestDangerLevel(t *testing.T) {
 
 func TestDangerLevelComparison(t *testing.T) {
 	// Test that danger levels have the expected relative values
-	if GetDangerLevelValue(DangerLevelSafe) >= GetDangerLevelValue(DangerLevelLow) {
+	if llm.GetDangerLevelValue(llm.DangerLevelSafe) >= llm.GetDangerLevelValue(llm.DangerLevelLow) {
 		t.Error("Safe should be less dangerous than Low")
 	}
 
-	if GetDangerLevelValue(DangerLevelLow) >= GetDangerLevelValue(DangerLevelMedium) {
+	if llm.GetDangerLevelValue(llm.DangerLevelLow) >= llm.GetDangerLevelValue(llm.DangerLevelMedium) {
 		t.Error("Low should be less dangerous than Medium")
 	}
 
-	if GetDangerLevelValue(DangerLevelMedium) >= GetDangerLevelValue(DangerLevelHigh) {
+	if llm.GetDangerLevelValue(llm.DangerLevelMedium) >= llm.GetDangerLevelValue(llm.DangerLevelHigh) {
 		t.Error("Medium should be less dangerous than High")
 	}
 
-	if GetDangerLevelValue(DangerLevelHigh) >= GetDangerLevelValue(DangerLevelCritical) {
+	if llm.GetDangerLevelValue(llm.DangerLevelHigh) >= llm.GetDangerLevelValue(llm.DangerLevelCritical) {
 		t.Error("High should be less dangerous than Critical")
 	}
 }
 
 func TestError(t *testing.T) {
-	err := &Error{
-		Type:    ErrorTypeNetwork,
+	err := &llm.Error{
+		Type:    llm.ErrorTypeNetwork,
 		Message: "test error",
 	}
 
@@ -56,9 +57,9 @@ func TestError(t *testing.T) {
 }
 
 func TestErrorWithCause(t *testing.T) {
-	causeErr := &testError{msg: "underlying error"}
-	err := &Error{
-		Type:    ErrorTypeNetwork,
+	causeErr := &providerTestError{msg: "underlying error"}
+	err := &llm.Error{
+		Type:    llm.ErrorTypeNetwork,
 		Message: "test error",
 		Cause:   causeErr,
 	}
@@ -70,7 +71,7 @@ func TestErrorWithCause(t *testing.T) {
 }
 
 func TestUsage(t *testing.T) {
-	usage := &Usage{
+	usage := &llm.Usage{
 		PromptTokens:     100,
 		CompletionTokens: 50,
 		TotalTokens:      150,
@@ -82,13 +83,13 @@ func TestUsage(t *testing.T) {
 }
 
 func TestResponse(t *testing.T) {
-	response := &Response{
+	response := &llm.Response{
 		Command:     "ls -la",
 		Explanation: "List files with details",
 		Confidence:  0.95,
-		DangerLevel: DangerLevelSafe,
+		DangerLevel: llm.DangerLevelSafe,
 		Warnings:    []string{},
-		Usage: &Usage{
+		Usage: &llm.Usage{
 			PromptTokens:     100,
 			CompletionTokens: 50,
 			TotalTokens:      150,
@@ -103,16 +104,16 @@ func TestResponse(t *testing.T) {
 		t.Errorf("Response Confidence should be between 0 and 1, got %f", response.Confidence)
 	}
 
-	if response.DangerLevel != DangerLevelSafe {
+	if response.DangerLevel != llm.DangerLevelSafe {
 		t.Errorf("Expected DangerLevelSafe, got %v", response.DangerLevel)
 	}
 }
 
 // Helper type for testing errors
-type testError struct {
+type providerTestError struct {
 	msg string
 }
 
-func (e *testError) Error() string {
+func (e *providerTestError) Error() string {
 	return e.msg
 }

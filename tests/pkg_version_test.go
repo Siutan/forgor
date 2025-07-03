@@ -1,16 +1,16 @@
-package pkg
+package tests
 
 import (
 	"testing"
 )
 
 // Version returns the current version for testing
-func Version() string {
+func pkgVersion() string {
 	return "test"
 }
 
-func TestVersion(t *testing.T) {
-	version := Version()
+func TestPkgVersion(t *testing.T) {
+	version := pkgVersion()
 	if version == "" {
 		t.Error("Version should not be empty")
 	}
@@ -20,8 +20,8 @@ func TestVersion(t *testing.T) {
 	}
 }
 
-func TestVersionFormat(t *testing.T) {
-	version := Version()
+func TestPkgVersionFormat(t *testing.T) {
+	version := pkgVersion()
 
 	// Test that version is a valid string
 	if len(version) == 0 {

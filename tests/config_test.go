@@ -1,18 +1,19 @@
-package config
+package tests
 
 import (
+	"forgor/internal/config"
 	"testing"
 )
 
 func TestValidateProfile(t *testing.T) {
 	tests := []struct {
 		name    string
-		profile Profile
+		profile config.Profile
 		wantErr bool
 	}{
 		{
 			name: "valid openai profile",
-			profile: Profile{
+			profile: config.Profile{
 				Provider: "openai",
 				APIKey:   "test-key",
 				Model:    "gpt-4",
@@ -21,7 +22,7 @@ func TestValidateProfile(t *testing.T) {
 		},
 		{
 			name: "missing provider",
-			profile: Profile{
+			profile: config.Profile{
 				APIKey: "test-key",
 				Model:  "gpt-4",
 			},
@@ -29,7 +30,7 @@ func TestValidateProfile(t *testing.T) {
 		},
 		{
 			name: "missing model",
-			profile: Profile{
+			profile: config.Profile{
 				Provider: "openai",
 				APIKey:   "test-key",
 			},
@@ -37,7 +38,7 @@ func TestValidateProfile(t *testing.T) {
 		},
 		{
 			name: "missing api key for openai",
-			profile: Profile{
+			profile: config.Profile{
 				Provider: "openai",
 				Model:    "gpt-4",
 			},
@@ -45,7 +46,7 @@ func TestValidateProfile(t *testing.T) {
 		},
 		{
 			name: "valid local profile",
-			profile: Profile{
+			profile: config.Profile{
 				Provider: "local",
 				Model:    "llama2",
 				Endpoint: "http://localhost:8080",
@@ -54,7 +55,7 @@ func TestValidateProfile(t *testing.T) {
 		},
 		{
 			name: "missing endpoint for local",
-			profile: Profile{
+			profile: config.Profile{
 				Provider: "local",
 				Model:    "llama2",
 			},
@@ -62,7 +63,7 @@ func TestValidateProfile(t *testing.T) {
 		},
 		{
 			name: "unsupported provider",
-			profile: Profile{
+			profile: config.Profile{
 				Provider: "unsupported",
 				Model:    "test",
 				APIKey:   "test-key",
@@ -84,14 +85,14 @@ func TestValidateProfile(t *testing.T) {
 func TestConfigValidate(t *testing.T) {
 	tests := []struct {
 		name    string
-		config  Config
+		cfg     config.Config
 		wantErr bool
 	}{
 		{
 			name: "valid config",
-			config: Config{
+			cfg: config.Config{
 				DefaultProfile: "test",
-				Profiles: map[string]Profile{
+				Profiles: map[string]config.Profile{
 					"test": {
 						Provider: "openai",
 						APIKey:   "test-key",
@@ -103,8 +104,8 @@ func TestConfigValidate(t *testing.T) {
 		},
 		{
 			name: "missing default profile",
-			config: Config{
-				Profiles: map[string]Profile{
+			cfg: config.Config{
+				Profiles: map[string]config.Profile{
 					"test": {
 						Provider: "openai",
 						APIKey:   "test-key",
@@ -116,9 +117,9 @@ func TestConfigValidate(t *testing.T) {
 		},
 		{
 			name: "default profile not found",
-			config: Config{
+			cfg: config.Config{
 				DefaultProfile: "missing",
-				Profiles: map[string]Profile{
+				Profiles: map[string]config.Profile{
 					"test": {
 						Provider: "openai",
 						APIKey:   "test-key",
@@ -130,9 +131,9 @@ func TestConfigValidate(t *testing.T) {
 		},
 		{
 			name: "invalid profile",
-			config: Config{
+			cfg: config.Config{
 				DefaultProfile: "test",
-				Profiles: map[string]Profile{
+				Profiles: map[string]config.Profile{
 					"test": {
 						Provider: "openai",
 						// Missing APIKey and Model
@@ -145,7 +146,7 @@ func TestConfigValidate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.config.Validate()
+			err := tt.cfg.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Config.Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -154,9 +155,9 @@ func TestConfigValidate(t *testing.T) {
 }
 
 func TestGetProfile(t *testing.T) {
-	config := Config{
+	cfg := config.Config{
 		DefaultProfile: "default",
-		Profiles: map[string]Profile{
+		Profiles: map[string]config.Profile{
 			"default": {
 				Provider: "openai",
 				APIKey:   "default-key",
@@ -171,7 +172,7 @@ func TestGetProfile(t *testing.T) {
 	}
 
 	// Test getting default profile
-	profile, err := config.GetProfile("")
+	profile, err := cfg.GetProfile("")
 	if err != nil {
 		t.Errorf("GetProfile(\"\") returned error: %v", err)
 	}
@@ -180,7 +181,7 @@ func TestGetProfile(t *testing.T) {
 	}
 
 	// Test getting specific profile
-	profile, err = config.GetProfile("test")
+	profile, err = cfg.GetProfile("test")
 	if err != nil {
 		t.Errorf("GetProfile(\"test\") returned error: %v", err)
 	}
@@ -189,7 +190,7 @@ func TestGetProfile(t *testing.T) {
 	}
 
 	// Test getting non-existent profile
-	_, err = config.GetProfile("missing")
+	_, err = cfg.GetProfile("missing")
 	if err == nil {
 		t.Error("GetProfile(\"missing\") should have returned an error")
 	}
