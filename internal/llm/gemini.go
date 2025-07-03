@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"forgor/internal/prompt"
+
 	"github.com/go-resty/resty/v2"
 )
 
@@ -102,20 +104,51 @@ func NewGeminiProvider(apiKey, model string) *GeminiProvider {
 
 // GenerateCommand generates a shell command from a natural language query
 func (p *GeminiProvider) GenerateCommand(ctx context.Context, request *Request) (*Response, error) {
-	prompt := p.buildCommandPrompt(request)
+	// Convert to prompt package request format
+	promptReq := &prompt.Request{
+		Query: request.Query,
+		Context: prompt.RequestContext{
+			WorkingDirectory: request.Context.WorkingDirectory,
+			History:          request.Context.History,
+			UserContext:      request.Context.UserContext,
+		},
+		Options: prompt.RequestOptions{
+			IncludeExplanation: request.Options.IncludeExplanation,
+			MaxTokens:          request.Options.MaxTokens,
+			Temperature:        request.Options.Temperature,
+		},
+	}
+
+	userPrompt := prompt.BuildGeminiCommandPrompt(promptReq)
+
+	// Convert to prompt package context format
+	promptContext := prompt.Context{
+		OS:               request.Context.OS,
+		Shell:            request.Context.Shell,
+		Architecture:     request.Context.Architecture,
+		User:             request.Context.User,
+		WorkingDirectory: request.Context.WorkingDirectory,
+		ToolsSummary:     request.Context.ToolsSummary,
+		PackageManagers:  request.Context.PackageManagers,
+		Languages:        request.Context.Languages,
+		ContainerTools:   request.Context.ContainerTools,
+		CloudTools:       request.Context.CloudTools,
+	}
+
+	systemPrompt := prompt.GetSystemPrompt(promptContext)
 
 	geminiReq := geminiRequest{
 		Contents: []geminiContent{
 			{
 				Parts: []geminiPart{
-					{Text: prompt},
+					{Text: userPrompt},
 				},
 				Role: "user",
 			},
 		},
 		SystemInstruction: &geminiSystemInstruction{
 			Parts: []geminiPart{
-				{Text: getSystemPrompt(request.Context)},
+				{Text: systemPrompt},
 			},
 		},
 		GenerationConfig: &geminiGenerationConfig{
@@ -184,7 +217,7 @@ func (p *GeminiProvider) GenerateCommand(ctx context.Context, request *Request) 
 		Command:     command,
 		Explanation: explanation,
 		Confidence:  p.calculateConfidence(candidate.FinishReason),
-		Warnings:    p.checkSafety(command),
+		Warnings:    prompt.CheckCommandSafety(command),
 		Usage:       usage,
 		Metadata: map[string]interface{}{
 			"model":         p.model,
@@ -286,42 +319,6 @@ func (p *GeminiProvider) GetProviderInfo() ProviderInfo {
 	}
 }
 
-// buildCommandPrompt constructs the prompt for command generation
-func (p *GeminiProvider) buildCommandPrompt(request *Request) string {
-	var parts []string
-
-	parts = append(parts, fmt.Sprintf("Convert this natural language request to a shell command:\n\n%s", request.Query))
-
-	// Add context information
-	if request.Context.WorkingDirectory != "" {
-		parts = append(parts, fmt.Sprintf("\nCurrent directory: %s", request.Context.WorkingDirectory))
-	}
-
-	// Add command history if available
-	if len(request.Context.History) > 0 {
-		parts = append(parts, "\nRecent command history:")
-		for i, cmd := range request.Context.History {
-			if i >= 5 { // Limit to last 5 commands
-				break
-			}
-			parts = append(parts, fmt.Sprintf("  %s", cmd))
-		}
-	}
-
-	// Add user context if provided
-	if request.Context.UserContext != "" {
-		parts = append(parts, fmt.Sprintf("\nAdditional context: %s", request.Context.UserContext))
-	}
-
-	if request.Options.IncludeExplanation {
-		parts = append(parts, "\nRespond with the command followed by a brief explanation separated by '||'.")
-	} else {
-		parts = append(parts, "\nRespond with only the shell command, no explanation.")
-	}
-
-	return strings.Join(parts, "\n")
-}
-
 // parseResponse extracts command and explanation from the response
 func (p *GeminiProvider) parseResponse(content string, includeExplanation bool) (command, explanation string) {
 	content = strings.TrimSpace(content)
@@ -334,12 +331,8 @@ func (p *GeminiProvider) parseResponse(content string, includeExplanation bool) 
 		command = content
 	}
 
-	// Clean up command (remove code block markers if present)
-	command = strings.TrimPrefix(command, "```bash")
-	command = strings.TrimPrefix(command, "```sh")
-	command = strings.TrimPrefix(command, "```")
-	command = strings.TrimSuffix(command, "```")
-	command = strings.TrimSpace(command)
+	// Clean up command using centralized function
+	command = prompt.CleanCommand(command)
 
 	return command, explanation
 }
@@ -358,32 +351,6 @@ func (p *GeminiProvider) calculateConfidence(finishReason string) float64 {
 	default:
 		return 0.5
 	}
-}
-
-// checkSafety performs basic safety checks on commands
-func (p *GeminiProvider) checkSafety(command string) []string {
-	var warnings []string
-	cmd := strings.ToLower(command)
-
-	dangerousPatterns := []string{
-		"rm -rf /",
-		"sudo rm",
-		"dd if=",
-		"mkfs",
-		"format",
-		"> /dev/",
-		"shutdown",
-		"reboot",
-		":(){ :|:& };:",
-	}
-
-	for _, pattern := range dangerousPatterns {
-		if strings.Contains(cmd, pattern) {
-			warnings = append(warnings, fmt.Sprintf("Potentially dangerous command detected: %s", pattern))
-		}
-	}
-
-	return warnings
 }
 
 // handleAPIError converts Gemini API errors to our error format
