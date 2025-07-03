@@ -27,7 +27,7 @@
 ### Quick Install
 
 ```bash
-  curl -fsSL https://raw.githubusercontent.com/Siutan/forgor/main/install.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/Siutan/forgor/refs/heads/main/scripts/install.sh | sh
 ```
 
 ### Add to PATH
