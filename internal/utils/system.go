@@ -618,6 +618,7 @@ func detectDevelopmentTools() []Tool {
 // detectSystemCommands identifies common system commands
 func detectSystemCommands() []string {
 	commands := []string{}
+	// checking for our own tool because we might add recursive tools in the future
 	candidates := []string{
 		"ls", "cd", "pwd", "mkdir", "rmdir", "rm", "cp", "mv", "ln",
 		"find", "grep", "awk", "sed", "sort", "uniq", "head", "tail",
@@ -630,7 +631,7 @@ func detectSystemCommands() []string {
 		"history", "alias", "unalias", "export", "env", "printenv",
 		"echo", "printf", "read", "test", "true", "false",
 		"ssh", "scp", "rsync", "curl", "wget", "ping", "traceroute",
-		"netstat", "ss", "lsof", "iptables", "firewall-cmd",
+		"netstat", "ss", "lsof", "iptables", "firewall-cmd", "forgor",
 	}
 
 	for _, cmd := range candidates {
@@ -822,6 +823,7 @@ func getToolVersion(tool string) string {
 	return "unknown"
 }
 
+// TODO: leaving this here for now but i should probably remove it
 // getHomeDirectory returns the user's home directory
 func getHomeDirectory() string {
 	if home := os.Getenv("HOME"); home != "" {
