@@ -183,6 +183,19 @@ EOF
     print_success "Updated $CHANGELOG_FILE"
 }
 
+# Function to check if there are only version-related changes
+has_only_version_changes() {
+    # Get list of changed files that are not VERSION or CHANGELOG.md
+    local other_changes=$(git status --porcelain | grep -v "$VERSION_FILE" | grep -v "$CHANGELOG_FILE")
+    
+    # If there are no other changes, return true (0)
+    if [[ -z "$other_changes" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Function to commit and tag
 commit_and_tag() {
     local version="$1"
@@ -193,6 +206,9 @@ commit_and_tag() {
         print_error "Not in a git repository"
         exit 1
     fi
+    
+    # Get current branch
+    local current_branch=$(git rev-parse --abbrev-ref HEAD)
     
     # Check if working directory is clean
     if [[ -n $(git status --porcelain) ]]; then
@@ -211,8 +227,17 @@ commit_and_tag() {
         print_success "Created tag $tag"
     fi
     
-    print_info "To push changes and tags, run:"
-    print_info "  git push origin main && git push origin $tag"
+    # Auto-push if there are only version-related changes
+    if has_only_version_changes; then
+        print_info "Only version-related changes detected. Auto-pushing..."
+        git push origin "$current_branch"
+        git push origin "$tag"
+        print_success "Changes pushed successfully!"
+    else
+        print_warning "Other changes detected besides version files."
+        print_info "To push changes and tags, run:"
+        print_info "  git push origin $current_branch && git push origin $tag"
+    fi
 }
 
 # Function to show usage
