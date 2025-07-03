@@ -16,14 +16,11 @@ GOGET=$(GOCMD) get
 GOCLEAN=$(GOCMD) clean
 GOMOD=$(GOCMD) mod
 
-# Git variables
-GIT_BRANCH=$(shell git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
-
 .PHONY: help build clean test test-coverage lint fmt vet deps update-deps \
         build-all version version-info version-bump-patch version-bump-minor \
         version-bump-major version-bump-prerelease version-check \
         release-patch release-minor release-major release-prerelease \
-        install uninstall run dev check-quality create-pr pre-commit auto-push-version
+        install uninstall run dev check-quality create-pr pre-commit
 
 # Default target
 help: ## Show this help message
@@ -117,19 +114,6 @@ dev: ## Run in development mode (with version info)
 	@echo "=========================="
 	$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) && ./$(BINARY_NAME)
 
-# Auto-push version changes if no other changes
-auto-push-version: ## Auto commit and push version changes if no other changes
-	@echo "Checking for version-only changes..."
-	@if [ -n "$$(git status --porcelain | grep -v "VERSION\|CHANGELOG.md")" ]; then \
-		echo "⚠️  Other changes detected besides version files. Not auto-pushing."; \
-		echo "   Please commit and push manually after reviewing changes."; \
-	else \
-		echo "✅ Only version-related changes detected. Auto-pushing..."; \
-		git push origin $(GIT_BRANCH); \
-		git push origin --tags; \
-		echo "✅ Changes pushed successfully!"; \
-	fi
-
 # Version management targets
 version: version-info ## Show version information
 
@@ -153,7 +137,6 @@ version-check: ## Validate VERSION file format
 version-bump-patch: ## Bump patch version
 	@if [ -f "scripts/version.sh" ]; then \
 		scripts/version.sh bump patch; \
-		$(MAKE) auto-push-version; \
 	else \
 		echo "❌ scripts/version.sh not found"; \
 		exit 1; \
@@ -162,7 +145,6 @@ version-bump-patch: ## Bump patch version
 version-bump-minor: ## Bump minor version
 	@if [ -f "scripts/version.sh" ]; then \
 		scripts/version.sh bump minor; \
-		$(MAKE) auto-push-version; \
 	else \
 		echo "❌ scripts/version.sh not found"; \
 		exit 1; \
@@ -171,7 +153,6 @@ version-bump-minor: ## Bump minor version
 version-bump-major: ## Bump major version
 	@if [ -f "scripts/version.sh" ]; then \
 		scripts/version.sh bump major; \
-		$(MAKE) auto-push-version; \
 	else \
 		echo "❌ scripts/version.sh not found"; \
 		exit 1; \
@@ -180,7 +161,6 @@ version-bump-major: ## Bump major version
 version-bump-prerelease: ## Bump prerelease version
 	@if [ -f "scripts/version.sh" ]; then \
 		scripts/version.sh bump prerelease; \
-		$(MAKE) auto-push-version; \
 	else \
 		echo "❌ scripts/version.sh not found"; \
 		exit 1; \
@@ -190,7 +170,6 @@ version-bump-prerelease: ## Bump prerelease version
 release-patch: version-bump-patch ## Create a patch release
 	@if [ -f "scripts/version.sh" ]; then \
 		scripts/version.sh release; \
-		$(MAKE) auto-push-version; \
 	else \
 		echo "❌ scripts/version.sh not found"; \
 		exit 1; \
@@ -199,7 +178,6 @@ release-patch: version-bump-patch ## Create a patch release
 release-minor: version-bump-minor ## Create a minor release
 	@if [ -f "scripts/version.sh" ]; then \
 		scripts/version.sh release; \
-		$(MAKE) auto-push-version; \
 	else \
 		echo "❌ scripts/version.sh not found"; \
 		exit 1; \
@@ -208,7 +186,6 @@ release-minor: version-bump-minor ## Create a minor release
 release-major: version-bump-major ## Create a major release
 	@if [ -f "scripts/version.sh" ]; then \
 		scripts/version.sh release; \
-		$(MAKE) auto-push-version; \
 	else \
 		echo "❌ scripts/version.sh not found"; \
 		exit 1; \
@@ -217,7 +194,6 @@ release-major: version-bump-major ## Create a major release
 release-prerelease: version-bump-prerelease ## Create a prerelease
 	@if [ -f "scripts/version.sh" ]; then \
 		scripts/version.sh release; \
-		$(MAKE) auto-push-version; \
 	else \
 		echo "❌ scripts/version.sh not found"; \
 		exit 1; \
