@@ -233,7 +233,7 @@ func runQuery(query string) error {
 	return nil
 }
 
-//TODO: remove this function
+// TODO: remove this function
 // isLikelyCommand checks if the input looks like a shell command
 func isLikelyCommand(input string) bool {
 	// Simple heuristic: if it starts with common command patterns
