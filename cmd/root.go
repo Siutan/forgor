@@ -97,7 +97,7 @@ func init() {
 
 	// Query flags
 	rootCmd.Flags().StringVarP(&profile, "profile", "p", "default", "config profile to use")
-	rootCmd.Flags().IntVarP(&history, "history", "hs", 0, "number of commands from history to include")
+	rootCmd.Flags().IntVarP(&history, "history", "n", 0, "number of commands from history to include")
 	rootCmd.Flags().BoolVarP(&interactive, "interactive", "i", false, "interactive mode with follow-ups")
 	rootCmd.Flags().BoolVarP(&explain, "explain", "e", false, "explain the command instead of just returning it")
 	rootCmd.Flags().StringVarP(&format, "format", "f", "plain", "output format: plain, json")
