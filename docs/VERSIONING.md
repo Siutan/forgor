@@ -312,7 +312,7 @@ $ ./forgor version
 └──────────────┴─────────────────────────────────────┘
 Executable: /usr/local/bin/forgor
 
-💡 Check for updates at: https://github.com/siutan/forgor/releases
+💡 Check for updates at: https://github.com/Siutan/forgor/releases
 ```
 
 This system ensures consistent, automated, and enforced version management across the entire project lifecycle.

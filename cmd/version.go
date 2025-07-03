@@ -125,7 +125,7 @@ func showUpdateInfo() {
 	// In a future enhancement, you could add update checking here
 	fmt.Printf("\n%s %s\n",
 		utils.Styled("💡", utils.StyleInfo),
-		utils.Styled("Check for updates at: https://github.com/siutan/forgor/releases", utils.StyleSubtle))
+		utils.Styled("Check for updates at: https://github.com/Siutan/forgor/releases", utils.StyleSubtle))
 }
 
 func init() {
