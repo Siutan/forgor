@@ -21,6 +21,12 @@ builds:
     goos:
       - linux
       - darwin
+    ldflags:
+      - -X 'forgor/cmd.Version={{.Version}}'
+      - -X 'forgor/cmd.GitCommit={{.Commit}}'
+      - -X 'forgor/cmd.BuildDate={{.Date}}'
+    flags:
+      - -trimpath
 
 archives:
   - formats: [tar.gz]

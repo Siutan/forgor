@@ -102,9 +102,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
         go-version: ["1.23"]
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    # add windows-latest back to matrix when supported
+    # continue-on-error: ${{ matrix.os == 'windows-latest' }}
 
     steps:
       - name: Checkout code

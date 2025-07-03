@@ -57,8 +57,8 @@ build-all: ## Build for all platforms
 	@GOOS=darwin GOARCH=amd64 $(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64
 	@echo "🍎 Building for macOS arm64..."
 	@GOOS=darwin GOARCH=arm64 $(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64
-	@echo "🪟 Building for Windows amd64..."
-	@GOOS=windows GOARCH=amd64 $(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe
+	@echo "🪟 Skipping Building for Windows amd64 (not supported yet)..."
+	# @GOOS=windows GOARCH=amd64 $(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe
 	@echo ""
 	@echo "✅ Build complete! $(BINARY_NAME) v$(VERSION) binaries in $(BUILD_DIR)/"
 
