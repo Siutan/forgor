@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Need full history to check for existing tags
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.FORGOR_PAT }} # Must use PAT instead of GITHUB_TOKEN to trigger other workflows
 
       - name: Read current version
         id: version
@@ -89,6 +89,8 @@ jobs:
           git tag -a "$TAG" -m "Release version $VERSION"
 
           echo "📤 Pushing tag to remote"
+          # Use PAT to ensure the tag push can trigger other workflows
+          git remote set-url origin https://x-access-token:${{ secrets.FORGOR_PAT }}@github.com/${{ github.repository }}
           git push origin "$TAG"
 
           echo "✅ Tag $TAG created and pushed successfully"
