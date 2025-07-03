@@ -24,93 +24,127 @@ GOMOD=$(GOCMD) mod
 
 # Default target
 help: ## Show this help message
+	@echo "🔥 Forgor CLI Makefile (v$(VERSION))"
+	@echo "Git: $(GIT_COMMIT)"
+	@echo "Built: $(BUILD_DATE)"
+	@echo ""
 	@echo "Available targets:"
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 # Build targets
 build: ## Build the binary
+	@echo "🔨 Building $(BINARY_NAME) v$(VERSION)..."
+	@echo "📦 Target: $(BINARY_NAME)"
+	@echo "🏷️  Version: $(VERSION)"
+	@echo "📝 Git Commit: $(GIT_COMMIT)"
+	@echo "📅 Build Date: $(BUILD_DATE)"
+	@echo ""
 	$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) -v
+	@echo ""
+	@echo "✅ Build complete: $(BINARY_NAME) v$(VERSION)"
 
 build-all: ## Build for all platforms
-	@echo "Building for all platforms..."
+	@echo "🔨 Building $(BINARY_NAME) v$(VERSION) for all platforms..."
+	@echo "📝 Git Commit: $(GIT_COMMIT)"
+	@echo "📅 Build Date: $(BUILD_DATE)"
+	@echo ""
 	@mkdir -p $(BUILD_DIR)
-	@echo "Building for Linux amd64..."
+	@echo "🐧 Building for Linux amd64..."
 	@GOOS=linux GOARCH=amd64 $(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64
-	@echo "Building for Linux arm64..."
+	@echo "🐧 Building for Linux arm64..."
 	@GOOS=linux GOARCH=arm64 $(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64
-	@echo "Building for macOS amd64..."
+	@echo "🍎 Building for macOS amd64..."
 	@GOOS=darwin GOARCH=amd64 $(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64
-	@echo "Building for macOS arm64..."
+	@echo "🍎 Building for macOS arm64..."
 	@GOOS=darwin GOARCH=arm64 $(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64
-	@echo "Building for Windows amd64..."
+	@echo "🪟 Building for Windows amd64..."
 	@GOOS=windows GOARCH=amd64 $(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe
-	@echo "Build complete! Binaries in $(BUILD_DIR)/"
+	@echo ""
+	@echo "✅ Build complete! $(BINARY_NAME) v$(VERSION) binaries in $(BUILD_DIR)/"
 
 install: build ## Install the binary to GOPATH/bin
-	@echo "Installing $(BINARY_NAME) to $(GOPATH)/bin"
+	@echo "📦 Installing $(BINARY_NAME) v$(VERSION) to $(GOPATH)/bin"
 	@cp $(BINARY_NAME) $(GOPATH)/bin/
+	@echo "✅ $(BINARY_NAME) v$(VERSION) installed successfully!"
 
 uninstall: ## Remove the binary from GOPATH/bin
-	@echo "Removing $(BINARY_NAME) from $(GOPATH)/bin"
+	@echo "🗑️  Removing $(BINARY_NAME) from $(GOPATH)/bin"
 	@rm -f $(GOPATH)/bin/$(BINARY_NAME)
+	@echo "✅ $(BINARY_NAME) uninstalled successfully!"
 
 clean: ## Clean build artifacts
+	@echo "🧹 Cleaning build artifacts for $(BINARY_NAME) v$(VERSION)..."
 	$(GOCLEAN)
 	rm -f $(BINARY_NAME)
 	rm -rf $(BUILD_DIR)
+	@echo "✅ Clean complete!"
 
 # Testing targets
 test: ## Run tests
+	@echo "🧪 Running tests for $(BINARY_NAME) v$(VERSION)..."
+	@echo "📝 Git Commit: $(GIT_COMMIT)"
+	@echo ""
 	$(GOTEST) -v ./...
 
 test-coverage: ## Run tests with coverage
+	@echo "🧪 Running tests with coverage for $(BINARY_NAME) v$(VERSION)..."
+	@echo "📝 Git Commit: $(GIT_COMMIT)"
+	@echo ""
 	$(GOTEST) -v -race -coverprofile=coverage.out ./...
 	$(GOCMD) tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report generated: coverage.html"
+	@echo ""
+	@echo "📊 Coverage report generated: coverage.html"
 
 test-ci: ## Run tests in CI mode
+	@echo "🤖 Running CI tests for $(BINARY_NAME) v$(VERSION)..."
 	$(GOTEST) -v -race -coverprofile=coverage.out ./...
 
 # Code quality targets
 fmt: ## Format code
-	@echo "Formatting code..."
+	@echo "🎨 Formatting code for $(BINARY_NAME) v$(VERSION)..."
 	@gofmt -s -w .
-	@echo "Code formatted successfully"
+	@echo "✅ Code formatted successfully"
 
 vet: ## Run go vet
-	@echo "Running go vet..."
+	@echo "🔍 Running go vet for $(BINARY_NAME) v$(VERSION)..."
 	@$(GOCMD) vet ./...
-	@echo "go vet passed"
+	@echo "✅ go vet passed"
 
 lint: vet ## Run linting (includes vet)
-	@echo "Running additional linting..."
+	@echo "🔍 Running additional linting for $(BINARY_NAME) v$(VERSION)..."
 	@if command -v golangci-lint >/dev/null 2>&1; then \
 		golangci-lint run ./...; \
 	else \
-		echo "golangci-lint not found, skipping advanced linting"; \
+		echo "⚠️  golangci-lint not found, skipping advanced linting"; \
 	fi
 
 check-quality: fmt vet test ## Run all quality checks
-	@echo "✅ All quality checks passed!"
+	@echo "✅ All quality checks passed for $(BINARY_NAME) v$(VERSION)!"
 
 # Dependency management
 deps: ## Download dependencies
+	@echo "📦 Downloading dependencies for $(BINARY_NAME) v$(VERSION)..."
 	$(GOMOD) download
 	$(GOMOD) tidy
+	@echo "✅ Dependencies updated!"
 
 update-deps: ## Update dependencies
+	@echo "🔄 Updating dependencies for $(BINARY_NAME) v$(VERSION)..."
 	$(GOMOD) get -u ./...
 	$(GOMOD) tidy
+	@echo "✅ Dependencies updated!"
 
 # Development targets
 run: build ## Build and run the application
+	@echo "🚀 Running $(BINARY_NAME) v$(VERSION)..."
+	@echo ""
 	./$(BINARY_NAME)
 
 dev: ## Run in development mode (with version info)
-	@echo "Running in development mode..."
-	@echo "Version: $(VERSION)"
-	@echo "Commit: $(GIT_COMMIT)"
-	@echo "Build Date: $(BUILD_DATE)"
+	@echo "🚀 Running $(BINARY_NAME) in development mode..."
+	@echo "🏷️  Version: $(VERSION)"
+	@echo "📝 Git Commit: $(GIT_COMMIT)"
+	@echo "📅 Build Date: $(BUILD_DATE)"
 	@echo "=========================="
 	$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) && ./$(BINARY_NAME)
 
@@ -118,11 +152,16 @@ dev: ## Run in development mode (with version info)
 version: version-info ## Show version information
 
 version-info: ## Display current version info
-	@echo "Current version: $(VERSION)"
-	@echo "Git commit: $(GIT_COMMIT)"
-	@echo "Build date: $(BUILD_DATE)"
+	@echo "🔥 Forgor CLI Version Information"
+	@echo "================================="
+	@echo "📦 Binary Name: $(BINARY_NAME)"
+	@echo "🏷️  Current Version: $(VERSION)"
+	@echo "📝 Git Commit: $(GIT_COMMIT)"
+	@echo "📅 Build Date: $(BUILD_DATE)"
+	@echo "💾 Version File: VERSION"
 
 version-check: ## Validate VERSION file format
+	@echo "🔍 Validating VERSION file format..."
 	@if [ ! -f "VERSION" ]; then \
 		echo "❌ VERSION file not found"; \
 		exit 1; \

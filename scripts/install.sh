@@ -35,6 +35,54 @@ success() {
     echo -e "${GREEN}[SUCCESS]${NC} $1"
 }
 
+# Compare two semantic versions
+# Returns: 0 if equal, 1 if first > second, 2 if first < second
+compare_versions() {
+    local ver1="$1"
+    local ver2="$2"
+    
+    # Remove 'v' prefix if present
+    ver1="${ver1#v}"
+    ver2="${ver2#v}"
+    
+    # If versions are identical
+    if [ "$ver1" = "$ver2" ]; then
+        return 0
+    fi
+    
+    # Split versions into arrays and compare
+    local IFS='.'
+    local ver1_array=($ver1)
+    local ver2_array=($ver2)
+    
+    # Pad arrays to same length
+    local max_len=${#ver1_array[@]}
+    if [ ${#ver2_array[@]} -gt $max_len ]; then
+        max_len=${#ver2_array[@]}
+    fi
+    
+    for ((i=0; i<max_len; i++)); do
+        local v1_part=${ver1_array[i]:-0}
+        local v2_part=${ver2_array[i]:-0}
+        
+        # Remove non-numeric suffixes (like -rc1, -beta, etc.)
+        v1_part=$(echo "$v1_part" | sed 's/[^0-9].*//')
+        v2_part=$(echo "$v2_part" | sed 's/[^0-9].*//')
+        
+        # Default to 0 if empty
+        v1_part=${v1_part:-0}
+        v2_part=${v2_part:-0}
+        
+        if [ "$v1_part" -gt "$v2_part" ]; then
+            return 1  # ver1 > ver2
+        elif [ "$v1_part" -lt "$v2_part" ]; then
+            return 2  # ver1 < ver2
+        fi
+    done
+    
+    return 0  # versions are equal
+}
+
 # Detect OS and architecture
 detect_platform() {
     local os arch
@@ -139,23 +187,76 @@ install_binary() {
     success "$BINARY_NAME $version installed successfully!"
 }
 
-# Check if already installed
+# Check if already installed and compare versions
 check_existing() {
     if command -v "$BINARY_NAME" >/dev/null 2>&1; then
-        local current_version
-        current_version=$($BINARY_NAME --version 2>/dev/null | head -n1 || echo "unknown")
-        warn "$BINARY_NAME is already installed: $current_version"
-        echo -n "Do you want to reinstall? [y/N]: "
-        read -r response
-        case "$response" in
-            [yY][eE][sS]|[yY]) 
-                log "Proceeding with reinstallation..."
-                ;;
-            *)
-                log "Installation cancelled."
+        local current_version latest_version
+        
+        # Get current version (extract version number from output)
+        current_version=$($BINARY_NAME --version 2>/dev/null | head -n1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+        
+        # Get latest version
+        latest_version=$(get_latest_version)
+        
+        if [ "$current_version" = "unknown" ]; then
+            warn "$BINARY_NAME is already installed but version could not be determined"
+            echo -n "Do you want to reinstall? [y/N]: "
+            read -r response
+            case "$response" in
+                [yY][eE][sS]|[yY]) 
+                    log "Proceeding with reinstallation..."
+                    return 0
+                    ;;
+                *)
+                    log "Installation cancelled."
+                    exit 0
+                    ;;
+            esac
+        fi
+        
+        log "Current version: $current_version"
+        log "Latest version: $latest_version"
+        
+        # Compare versions
+        compare_versions "$latest_version" "$current_version"
+        local comparison=$?
+        
+        case $comparison in
+            0)
+                success "$BINARY_NAME is already up to date (version $current_version)"
                 exit 0
                 ;;
-        esac
+            1)
+                log "A newer version ($latest_version) is available!"
+                echo -n "Do you want to update from $current_version to $latest_version? [Y/n]: "
+                read -r response
+                case "$response" in
+                    [nN][oO]|[nN])
+                        log "Update cancelled."
+                        exit 0
+                        ;;
+                    *)
+                        log "Proceeding with update..."
+                        return 0
+                        ;;
+                esac
+                ;;
+            2)
+                warn "Current version ($current_version) is newer than latest release ($latest_version)"
+                echo -n "Do you want to downgrade to $latest_version? [y/N]: "
+                read -r response
+                case "$response" in
+                    [yY][eE][sS]|[yY])
+                        log "Proceeding with downgrade..."
+                        return 0
+                        ;;
+                                         *)
+                         log "Installation cancelled."
+                         exit 0
+                         ;;
+                 esac
+                 ;;
+         esac
     fi
 }
 

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"forgor/internal/prompt"
+
 	"github.com/go-resty/resty/v2"
 )
 
@@ -76,18 +78,49 @@ func NewOpenAIProvider(apiKey, model string) *OpenAIProvider {
 
 // GenerateCommand generates a shell command from a natural language query
 func (p *OpenAIProvider) GenerateCommand(ctx context.Context, request *Request) (*Response, error) {
-	prompt := p.buildCommandPrompt(request)
+	// Convert to prompt package request format
+	promptReq := &prompt.Request{
+		Query: request.Query,
+		Context: prompt.RequestContext{
+			WorkingDirectory: request.Context.WorkingDirectory,
+			History:          request.Context.History,
+			UserContext:      request.Context.UserContext,
+		},
+		Options: prompt.RequestOptions{
+			IncludeExplanation: request.Options.IncludeExplanation,
+			MaxTokens:          request.Options.MaxTokens,
+			Temperature:        request.Options.Temperature,
+		},
+	}
+
+	userPrompt := prompt.BuildOpenAICommandPrompt(promptReq)
+
+	// Convert to prompt package context format
+	promptContext := prompt.Context{
+		OS:               request.Context.OS,
+		Shell:            request.Context.Shell,
+		Architecture:     request.Context.Architecture,
+		User:             request.Context.User,
+		WorkingDirectory: request.Context.WorkingDirectory,
+		ToolsSummary:     request.Context.ToolsSummary,
+		PackageManagers:  request.Context.PackageManagers,
+		Languages:        request.Context.Languages,
+		ContainerTools:   request.Context.ContainerTools,
+		CloudTools:       request.Context.CloudTools,
+	}
+
+	systemPrompt := prompt.GetSystemPrompt(promptContext)
 
 	openAIReq := openAIRequest{
 		Model: p.model,
 		Messages: []openAIMessage{
 			{
 				Role:    "system",
-				Content: getSystemPrompt(request.Context),
+				Content: systemPrompt,
 			},
 			{
 				Role:    "user",
-				Content: prompt,
+				Content: userPrompt,
 			},
 		},
 		MaxTokens:   request.Options.MaxTokens,
@@ -130,7 +163,7 @@ func (p *OpenAIProvider) GenerateCommand(ctx context.Context, request *Request) 
 		Confidence:   p.calculateConfidence(choice.FinishReason),
 		DangerLevel:  llmDangerLevel,
 		DangerReason: llmDangerReason,
-		Warnings:     p.checkSafety(command),
+		Warnings:     prompt.CheckCommandSafety(command),
 		Usage: &Usage{
 			PromptTokens:     resp.Usage.PromptTokens,
 			CompletionTokens: resp.Usage.CompletionTokens,
@@ -227,45 +260,6 @@ func (p *OpenAIProvider) GetProviderInfo() ProviderInfo {
 	}
 }
 
-// buildCommandPrompt constructs the prompt for command generation
-func (p *OpenAIProvider) buildCommandPrompt(request *Request) string {
-	var parts []string
-
-	parts = append(parts, fmt.Sprintf("Convert this natural language request to a shell command:\n\n%s", request.Query))
-
-	// Add context information
-	if request.Context.WorkingDirectory != "" {
-		parts = append(parts, fmt.Sprintf("\nCurrent directory: %s", request.Context.WorkingDirectory))
-	}
-
-	// Add command history if available
-	if len(request.Context.History) > 0 {
-		parts = append(parts, "\nRecent command history:")
-		for i, cmd := range request.Context.History {
-			if i >= 5 { // Limit to last 5 commands
-				break
-			}
-			parts = append(parts, fmt.Sprintf("  %s", cmd))
-		}
-	}
-
-	// Add user context if provided
-	if request.Context.UserContext != "" {
-		parts = append(parts, fmt.Sprintf("\nAdditional context: %s", request.Context.UserContext))
-	}
-
-	// Add response format instructions
-	parts = append(parts, "\nPlease respond in this exact format:")
-	parts = append(parts, "COMMAND: [the shell command]")
-	if request.Options.IncludeExplanation {
-		parts = append(parts, "EXPLANATION: [brief explanation]")
-	}
-	parts = append(parts, "DANGER_LEVEL: [safe/low/medium/high/critical]")
-	parts = append(parts, "DANGER_REASON: [reason for the danger level assessment]")
-
-	return strings.Join(parts, "\n")
-}
-
 // parseResponse extracts command, explanation, and danger assessment from the response
 func (p *OpenAIProvider) parseResponse(content string, includeExplanation bool) (command, explanation string, dangerLevel DangerLevel, dangerReason string) {
 	content = strings.TrimSpace(content)
@@ -306,12 +300,8 @@ func (p *OpenAIProvider) parseResponse(content string, includeExplanation bool) 
 		command = content
 	}
 
-	// Clean up command (remove code block markers if present)
-	command = strings.TrimPrefix(command, "```bash")
-	command = strings.TrimPrefix(command, "```sh")
-	command = strings.TrimPrefix(command, "```")
-	command = strings.TrimSuffix(command, "```")
-	command = strings.TrimSpace(command)
+	// Clean up command using centralized function
+	command = prompt.CleanCommand(command)
 
 	return command, explanation, dangerLevel, dangerReason
 }
@@ -328,32 +318,6 @@ func (p *OpenAIProvider) calculateConfidence(finishReason string) float64 {
 	default:
 		return 0.5
 	}
-}
-
-// checkSafety performs basic safety checks on commands
-func (p *OpenAIProvider) checkSafety(command string) []string {
-	var warnings []string
-	cmd := strings.ToLower(command)
-
-	dangerousPatterns := []string{
-		"rm -rf /",
-		"sudo rm",
-		"dd if=",
-		"mkfs",
-		"format",
-		"> /dev/",
-		"shutdown",
-		"reboot",
-		":(){ :|:& };:",
-	}
-
-	for _, pattern := range dangerousPatterns {
-		if strings.Contains(cmd, pattern) {
-			warnings = append(warnings, fmt.Sprintf("Potentially dangerous command detected: %s", pattern))
-		}
-	}
-
-	return warnings
 }
 
 // handleAPIError converts OpenAI API errors to our error format
@@ -388,68 +352,4 @@ func (p *OpenAIProvider) handleAPIError(resp *resty.Response, apiResp *openAIRes
 		Type:    ErrorTypeNetwork,
 		Message: fmt.Sprintf("HTTP %d: %s", resp.StatusCode(), resp.String()),
 	}
-}
-
-// getSystemPrompt returns the system prompt for command generation
-func getSystemPrompt(context Context) string {
-	basePrompt := fmt.Sprintf(`You are a helpful shell command assistant. Convert natural language requests into safe, executable shell commands for %s using %s.
-
-System Information:
-- OS: %s (%s architecture)
-- Shell: %s
-- User: %s
-- Working Directory: %s`, context.OS, context.Shell, context.OS, context.Architecture, context.Shell, context.User, context.WorkingDirectory)
-
-	// Add tool context if available
-	if context.ToolsSummary != "" {
-		basePrompt += fmt.Sprintf(`
-- Available Tools: %s`, context.ToolsSummary)
-	}
-
-	// Add package managers if available
-	if len(context.PackageManagers) > 0 {
-		basePrompt += fmt.Sprintf(`
-- Package Managers: %s`, strings.Join(context.PackageManagers, ", "))
-	}
-
-	// Add programming languages if available
-	if len(context.Languages) > 0 {
-		basePrompt += fmt.Sprintf(`
-- Programming Languages: %s`, strings.Join(context.Languages, ", "))
-	}
-
-	// Add container tools if available
-	if len(context.ContainerTools) > 0 {
-		basePrompt += fmt.Sprintf(`
-- Container Tools: %s`, strings.Join(context.ContainerTools, ", "))
-	}
-
-	// Add cloud tools if available
-	if len(context.CloudTools) > 0 {
-		basePrompt += fmt.Sprintf(`
-- Cloud Tools: %s`, strings.Join(context.CloudTools, ", "))
-	}
-
-	basePrompt += `
-
-Rules:
-1. Return only the command, no extra text or formatting
-2. Ensure commands are safe and won't cause system damage
-3. Use appropriate flags and options for the target OS and shell
-4. Prefer tools and commands that are actually available on this system
-5. Take advantage of available package managers, languages, and tools when relevant
-6. If the request is unclear, make reasonable assumptions based on the available tools
-7. Consider the user's environment and available capabilities when generating commands
-
-Examples:
-- "find all txt files" → find . -name "*.txt"
-- "show disk usage" → df -h
-- "list running processes" → ps aux
-- "compress this folder" → tar -czf archive.tar.gz .
-- "install package" → use appropriate package manager (brew, apt, yum, etc.)
-- "run container" → use docker, podman, or available container runtime
-
-Remember: Safety first - avoid destructive operations unless explicitly requested. Use tools that are actually available on this system.`
-
-	return basePrompt
 }

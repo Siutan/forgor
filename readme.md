@@ -27,20 +27,12 @@
 ### Quick Install
 
 ```bash
-go install github.com/Siutan/forgor@latest
+  curl -fsSL https://raw.githubusercontent.com/Siutan/forgor/main/install.sh | sh
 ```
 
 ### Add to PATH
 
-If `go install` doesn't automatically add the binary to your PATH, add Go's bin directory:
-
-```bash
-# Add to your shell profile (.bashrc, .zshrc, etc.)
-export PATH=$PATH:$(go env GOPATH)/bin
-
-# Source your profile to apply changes
-source ~/.bashrc  # or ~/.zshrc, ~/.bash_profile, etc.
-```
+If the install script doesn't automatically add the binary to your PATH, add it manually
 
 ### Create Alias (Recommended)
 
@@ -309,7 +301,7 @@ forgor config list-providers
 ```bash
 git clone https://github.com/Siutan/forgor.git
 cd forgor
-go build -o forgor main.go
+make build
 ```
 
 ### Running Tests
