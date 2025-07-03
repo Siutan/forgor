@@ -406,10 +406,5 @@ jobs:
             echo "✘ Security Scan: Failed" >> $GITHUB_STEP_SUMMARY
           fi
 
-          # Add a note if Windows failed
-          if grep -q 'windows-latest' <<< "${{ needs.build.outputs.failed-matrix-os }}"; then
-            echo "\n⚠️ Windows build failed, but this does not block CI.\n" >> $GITHUB_STEP_SUMMARY
-          fi
-
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**PR is ready for review!** 🎉" >> $GITHUB_STEP_SUMMARY
