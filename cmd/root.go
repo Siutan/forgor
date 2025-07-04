@@ -187,8 +187,20 @@ func runQuery(query string) error {
 	contextStep.End()
 
 	// Add command history
+
 	historyStep := timer.StartStep("History Processing")
-	requestContext = llm.EnhanceContextWithHistory(requestContext, []string{})
+	var historyCommands []string
+	if history > 0 {
+		var err error
+		historyCommands, err = utils.GetCurrentShellHistory(history)
+		if err != nil && verbose {
+			fmt.Printf("%s Failed to read shell history: %v\n", utils.Styled("[WARNING]", utils.StyleWarning), err)
+		}
+		if verbose && len(historyCommands) > 0 {
+			fmt.Printf("%s Loaded %d commands from history\n", utils.Styled("[INFO]", utils.StyleInfo), len(historyCommands))
+		}
+	}
+	requestContext = llm.EnhanceContextWithHistory(requestContext, historyCommands)
 	historyStep.End()
 
 	if verbose {

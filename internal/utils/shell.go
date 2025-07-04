@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bufio"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -150,4 +151,169 @@ func GetEnvironmentInfo() map[string]string {
 	}
 
 	return info
+}
+
+// ReadShellHistory reads the last N commands from the shell history file
+func ReadShellHistory(shell string, maxCommands int) ([]string, error) {
+	if maxCommands <= 0 {
+		return []string{}, nil
+	}
+
+	// Get the history file path
+	historyFile := GetShellHistoryFile(shell)
+	if historyFile == "" {
+		return []string{}, nil // No history file found for this shell
+	}
+
+	// Check if the history file exists
+	if _, err := os.Stat(historyFile); os.IsNotExist(err) {
+		return []string{}, nil // History file doesn't exist
+	}
+
+	// Handle different shell history formats
+	shell = strings.ToLower(shell)
+	switch shell {
+	case "zsh":
+		return readZshHistory(historyFile, maxCommands)
+	case "fish":
+		return readFishHistory(historyFile, maxCommands)
+	case "bash":
+		fallthrough
+	default:
+		return readBashHistory(historyFile, maxCommands)
+	}
+}
+
+// readBashHistory reads bash history (simple line-by-line format)
+func readBashHistory(historyFile string, maxCommands int) ([]string, error) {
+	file, err := os.Open(historyFile)
+	if err != nil {
+		return []string{}, err
+	}
+	defer file.Close()
+
+	var commands []string
+	scanner := bufio.NewScanner(file)
+
+	// Read all lines and collect commands
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			commands = append(commands, line)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return []string{}, err
+	}
+
+	// Return the last N commands (or all if less than N)
+	if len(commands) <= maxCommands {
+		return commands, nil
+	}
+
+	// Return the last maxCommands
+	return commands[len(commands)-maxCommands:], nil
+}
+
+// readZshHistory reads zsh history (extended format with timestamps)
+func readZshHistory(historyFile string, maxCommands int) ([]string, error) {
+	file, err := os.Open(historyFile)
+	if err != nil {
+		return []string{}, err
+	}
+	defer file.Close()
+
+	var commands []string
+	scanner := bufio.NewScanner(file)
+
+	// Read all lines and collect commands
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		// Zsh history format: ": timestamp:duration;command"
+		// We need to extract just the command part
+		if strings.HasPrefix(line, ": ") {
+			// Find the last semicolon which separates metadata from command
+			lastSemicolon := strings.LastIndex(line, ";")
+			if lastSemicolon != -1 && lastSemicolon < len(line)-1 {
+				command := strings.TrimSpace(line[lastSemicolon+1:])
+				if command != "" {
+					commands = append(commands, command)
+				}
+			}
+		} else {
+			// Fallback: treat as regular command
+			commands = append(commands, line)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return []string{}, err
+	}
+
+	// Return the last N commands (or all if less than N)
+	if len(commands) <= maxCommands {
+		return commands, nil
+	}
+
+	// Return the last maxCommands
+	return commands[len(commands)-maxCommands:], nil
+}
+
+// readFishHistory reads fish history (SQLite database format)
+func readFishHistory(historyFile string, maxCommands int) ([]string, error) {
+	// Fish uses SQLite database, which is complex to parse
+	// For now, we'll return empty slice and log a message
+	// TODO: Implement SQLite parsing for fish history
+	return []string{}, nil
+}
+
+// GetCurrentShellHistory reads history from the current shell
+func GetCurrentShellHistory(maxCommands int) ([]string, error) {
+	shell := GetCurrentShell()
+	commands, err := ReadShellHistory(shell, maxCommands)
+	if err != nil {
+		return commands, err
+	}
+
+	// Filter out sensitive information
+	return filterSensitiveCommands(commands), nil
+}
+
+// filterSensitiveCommands removes commands that might contain sensitive information
+func filterSensitiveCommands(commands []string) []string {
+	sensitivePatterns := []string{
+		"password", "passwd", "pass",
+		"token", "secret", "key",
+		"api_key", "apikey", "apisecret",
+		"ssh-keygen", "ssh-add",
+		"gpg", "openssl",
+		"mysql -p", "psql -W",
+		"docker login",
+		"aws configure",
+		"kubectl config",
+	}
+
+	var filtered []string
+	for _, cmd := range commands {
+		cmdLower := strings.ToLower(cmd)
+		isSensitive := false
+
+		for _, pattern := range sensitivePatterns {
+			if strings.Contains(cmdLower, pattern) {
+				isSensitive = true
+				break
+			}
+		}
+
+		if !isSensitive {
+			filtered = append(filtered, cmd)
+		}
+	}
+
+	return filtered
 }

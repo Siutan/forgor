@@ -118,7 +118,7 @@ ff "show me how to make a new tmux session called dev"
 forgor --history 2 "fix the above command"
 
 # Short form
-forgor -h 1 "make the last command safer"
+forgor -n 1 "make the last command safer"
 ```
 
 ### Different Modes
