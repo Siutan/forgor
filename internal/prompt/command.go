@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"fmt"
+	"forgor/internal/history"
 	"strings"
 )
 
@@ -15,7 +16,7 @@ type Request struct {
 // RequestContext contains contextual information for the request
 type RequestContext struct {
 	WorkingDirectory string
-	History          []string
+	History          []history.HistoryEntry
 	UserContext      string
 }
 
@@ -26,8 +27,28 @@ type RequestOptions struct {
 	Temperature        float64
 }
 
+func formatHistoryForPrompt(historyEntries []history.HistoryEntry) string {
+	if len(historyEntries) == 0 {
+		return ""
+	}
+
+	var parts []string
+	parts = append(parts, "\n\nHere is the recent command history (most recent last):")
+	for _, entry := range historyEntries {
+		status := ""
+		if entry.ExitCode > 0 {
+			status = fmt.Sprintf(" (FAILED with exit code %d)", entry.ExitCode)
+		} else if entry.ExitCode == 0 {
+			status = " (SUCCESS)"
+		}
+		// If ExitCode is -1 (unknown), no status is added.
+		parts = append(parts, fmt.Sprintf("- `%s`%s", entry.Command, status))
+	}
+	parts = append(parts, "\n\nPay special attention to any FAILED commands and try to fix them based on the user's request.")
+	return strings.Join(parts, "\n")
+}
+
 // BuildCommandPrompt constructs the prompt for command generation
-// This replaces the duplicated buildCommandPrompt functions in each provider
 func BuildCommandPrompt(request *Request) string {
 	var parts []string
 
@@ -39,15 +60,7 @@ func BuildCommandPrompt(request *Request) string {
 	}
 
 	// Add command history if available
-	if len(request.Context.History) > 0 {
-		parts = append(parts, "\nRecent command history:")
-		for i, cmd := range request.Context.History {
-			if i >= 5 { // Limit to last 5 commands
-				break
-			}
-			parts = append(parts, fmt.Sprintf("  %s", cmd))
-		}
-	}
+	parts = append(parts, formatHistoryForPrompt(request.Context.History))
 
 	// Add user context if provided
 	if request.Context.UserContext != "" {

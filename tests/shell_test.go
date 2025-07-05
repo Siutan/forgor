@@ -133,30 +133,29 @@ func TestReadShellHistory(t *testing.T) {
 	}
 }
 
-func TestGetCurrentShellHistory(t *testing.T) {
+func TestGetHistory(t *testing.T) {
 	// Test with zero maxCommands
-	commands, err := utils.GetCurrentShellHistory(0)
+	commands, err := utils.GetHistory(0)
 	if err != nil {
-		t.Errorf("GetCurrentShellHistory with 0 maxCommands should not error: %v", err)
+		t.Errorf("GetHistory with 0 maxCommands should not error: %v", err)
 	}
 	if len(commands) != 0 {
-		t.Errorf("GetCurrentShellHistory with 0 maxCommands should return empty slice, got %d commands", len(commands))
+		t.Errorf("GetHistory with 0 maxCommands should return empty slice, got %d commands", len(commands))
 	}
 
 	// Test with small number - this might return actual history or empty slice
-	commands, err = utils.GetCurrentShellHistory(1)
+	commands, err = utils.GetHistory(1)
 	if err != nil {
-		t.Errorf("GetCurrentShellHistory should not error: %v", err)
+		t.Errorf("GetHistory should not error: %v", err)
 	}
-	// Don't check length as it depends on whether history file exists and has content
 }
 
 func TestFilterSensitiveCommands(t *testing.T) {
 	// This test would need to be added if we export the filterSensitiveCommands function
-	// For now, we test it indirectly through GetCurrentShellHistory
-	commands, err := utils.GetCurrentShellHistory(10)
+	// For now, we test it indirectly through GetHistory
+	commands, err := utils.GetHistory(10)
 	if err != nil {
-		t.Errorf("GetCurrentShellHistory should not error: %v", err)
+		t.Errorf("GetHistory should not error: %v", err)
 	}
 
 	// Check that no sensitive commands are returned

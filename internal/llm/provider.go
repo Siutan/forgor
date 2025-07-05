@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"forgor/internal/history"
 )
 
 // Provider defines the interface for LLM providers
@@ -40,7 +41,7 @@ type Context struct {
 	WorkingDirectory string `json:"working_directory"`
 
 	// Recent command history
-	History []string `json:"history,omitempty"`
+	History []history.HistoryEntry `json:"history,omitempty"`
 
 	// Additional context from user
 	UserContext string `json:"user_context,omitempty"`
