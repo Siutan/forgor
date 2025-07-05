@@ -22,6 +22,40 @@
 
 ---
 
+### Enhanced Shell History (Recommended)
+
+For the best experience, `forgor` can use an enhanced shell logger that provides rich, real-time, cross-session history.
+
+This logger provides more context than native shell history:
+
+- Captures commands from all terminal sessions instantly.
+- Includes context like the working directory for each command.
+- Sanitizes sensitive arguments (e.g., passwords, API keys) automatically through a filter list.
+
+In saying this, please note that the enhanced logger is not a replacement for native shell history. and although it itself doesn't send commands to an external API, it can still be sent to LLMs so do be aware of the potential risks of any keys or secrets you might have in your history.
+
+You can disable history completely by setting `history: 0` in your configuration file.
+
+#### Install the Enhanced Logger
+
+Run the following command to install the logger script. It will automatically detect your shell (`bash`, `zsh`, or `fish`) and configure it.
+
+```bash
+curl -sL https://raw.githubusercontent.com/Siutan/forgor/main/scripts/configure-history-logger.sh | bash
+```
+
+After running, **restart your shell** to activate it. The logger does not overwrite your history file, it hooks into the `command has run` event and logs each command to the `~/.command_log` file.
+
+#### Uninstall the Logger
+
+If you need to remove the logger, a simple uninstall script is provided:
+
+```bash
+curl -sL https://raw.githubusercontent.com/Siutan/forgor/main/scripts/reset-history-logger.sh | bash
+```
+
+---
+
 ## 🚀 Installation
 
 ### Quick Install
@@ -118,7 +152,7 @@ ff "show me how to make a new tmux session called dev"
 forgor --history 2 "fix the above command"
 
 # Short form
-forgor -h 1 "make the last command safer"
+forgor -n 1 "make the last command safer"
 ```
 
 ### Different Modes

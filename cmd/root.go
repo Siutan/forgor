@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"forgor/internal/config"
+	"forgor/internal/history"
 	"forgor/internal/llm"
 	"forgor/internal/utils"
 
@@ -17,16 +18,16 @@ import (
 )
 
 var (
-	cfgFile     string
-	verbose     bool
-	profile     string
-	history     int
-	interactive bool
-	explain     bool
-	format      string
-	confirm     bool
-	localOnly   bool
-	forceRun    bool
+	cfgFile      string
+	verbose      bool
+	profile      string
+	historyCount int
+	interactive  bool
+	explain      bool
+	format       string
+	confirm      bool
+	localOnly    bool
+	forceRun     bool
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -43,7 +44,7 @@ Examples:
   ff -R "list all files in current directory"  # Force run the generated command`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runQuery(args[0])
+		return runQuery(cmd, args[0])
 	},
 	CompletionOptions: cobra.CompletionOptions{
 		DisableDefaultCmd: true,
@@ -97,7 +98,7 @@ func init() {
 
 	// Query flags
 	rootCmd.Flags().StringVarP(&profile, "profile", "p", "default", "config profile to use")
-	rootCmd.Flags().IntVarP(&history, "history", "n", 0, "number of commands from history to include")
+	rootCmd.Flags().IntVarP(&historyCount, "history", "n", 0, "number of commands from history to include")
 	rootCmd.Flags().BoolVarP(&interactive, "interactive", "i", false, "interactive mode with follow-ups")
 	rootCmd.Flags().BoolVarP(&explain, "explain", "e", false, "explain the command instead of just returning it")
 	rootCmd.Flags().StringVarP(&format, "format", "f", "plain", "output format: plain, json")
@@ -116,7 +117,7 @@ func init() {
 }
 
 // runQuery processes a natural language query and generates a command
-func runQuery(query string) error {
+func runQuery(cmd *cobra.Command, query string) error {
 	// Set verbose environment variable for system detection timing
 	if verbose {
 		os.Setenv("FORGOR_VERBOSE", "true")
@@ -188,7 +189,66 @@ func runQuery(query string) error {
 
 	// Add command history
 	historyStep := timer.StartStep("History Processing")
-	requestContext = llm.EnhanceContextWithHistory(requestContext, []string{})
+
+	var numHistory int
+	// Precedence: command-line flag > config file
+	if cmd.Flags().Changed("history") {
+		numHistory = historyCount
+	} else {
+		numHistory = cfg.History.MaxCommands
+	}
+
+	var historyCommands []history.HistoryEntry
+	if numHistory > 0 {
+		// Check if history is enabled for the current shell
+		currentShell := utils.GetCurrentShell()
+		isShellAllowed := false
+		if len(cfg.History.Shells) == 0 {
+			isShellAllowed = true // If list is empty, all shells are allowed
+		} else {
+			for _, allowedShell := range cfg.History.Shells {
+				if strings.EqualFold(currentShell, allowedShell) {
+					isShellAllowed = true
+					break
+				}
+			}
+		}
+
+		if isShellAllowed {
+			var err error
+			historyCommands, err = utils.GetHistory(numHistory)
+			if err != nil {
+				if verbose {
+					fmt.Printf("%s Could not read history: %v\n", utils.Styled("[WARN]", utils.StyleWarning), err)
+				}
+			}
+			if verbose && len(historyCommands) > 0 {
+				fmt.Printf("%s Loaded %d commands from history for '%s' shell\n", utils.Styled("[INFO]", utils.StyleInfo), len(historyCommands), currentShell)
+				historyStrings := make([]string, len(historyCommands))
+				for i, h := range historyCommands {
+					status := ""
+					if h.ExitCode == 0 {
+						status = " (✓)"
+					} else if h.ExitCode > 0 {
+						status = fmt.Sprintf(" (✗ %d)", h.ExitCode)
+					}
+					historyStrings[i] = h.Command + status
+				}
+				fmt.Printf("%s\n", utils.List(historyStrings, utils.StyleInfo))
+			}
+		} else if verbose {
+			fmt.Printf("%s History skipped: current shell '%s' is not in the configured list %v.\n", utils.Styled("[INFO]", utils.StyleInfo), currentShell, cfg.History.Shells)
+		}
+
+		requestContext = llm.EnhanceContextWithHistory(requestContext, historyCommands)
+	} else if verbose {
+		reason := "configuration"
+		if cmd.Flags().Changed("history") {
+			reason = "command-line flag"
+		}
+		fmt.Printf("%s History context is disabled by %s.\n", utils.Styled("[INFO]", utils.StyleInfo), reason)
+	}
+
 	historyStep.End()
 
 	if verbose {

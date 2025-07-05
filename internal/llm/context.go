@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"forgor/internal/history"
 	"forgor/internal/utils"
 )
 
@@ -35,14 +36,10 @@ func BuildContextFromSystemWithTiming(verbose bool) Context {
 	}
 
 	context := Context{
-		OS:               systemCtx.OS,
 		Shell:            systemCtx.Shell,
-		WorkingDirectory: systemCtx.WorkingDirectory,
+		OS:               systemCtx.OS,
 		Architecture:     systemCtx.Architecture,
-		User:             systemCtx.User,
-		HomeDirectory:    systemCtx.HomeDirectory,
-		Environment:      systemCtx.Environment,
-		ToolsAvailable:   systemCtx.Tools.Available,
+		WorkingDirectory: systemCtx.WorkingDirectory,
 		ToolsSummary:     utils.GetToolContextSummary(),
 	}
 
@@ -75,8 +72,8 @@ func BuildContextFromSystemWithTiming(verbose bool) Context {
 }
 
 // EnhanceContextWithHistory adds command history to the context
-func EnhanceContextWithHistory(context Context, history []string) Context {
-	context.History = history
+func EnhanceContextWithHistory(context Context, historyEntries []history.HistoryEntry) Context {
+	context.History = historyEntries
 	return context
 }
 
