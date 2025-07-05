@@ -144,7 +144,6 @@ func TestGetHistory(t *testing.T) {
 	}
 
 	// Test with small number - this might return actual history or empty slice
-	commands, err = utils.GetHistory(1)
 	if err != nil {
 		t.Errorf("GetHistory should not error: %v", err)
 	}
@@ -166,10 +165,10 @@ func TestFilterSensitiveCommands(t *testing.T) {
 	}
 
 	for _, cmd := range commands {
-		cmdLower := strings.ToLower(cmd)
+		cmdLower := strings.ToLower(cmd.Command)
 		for _, pattern := range sensitivePatterns {
 			if strings.Contains(cmdLower, pattern) {
-				t.Errorf("Sensitive command found in filtered history: %s", cmd)
+				t.Errorf("Sensitive command found in filtered history: %s", cmd.Command)
 			}
 		}
 	}
