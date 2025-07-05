@@ -1,23 +1,50 @@
 # forgor configuration file
 # Copy this to ~/.config/forgor/config.yaml and customize as needed
 
-default_profile: "openai"
+################################################################################
+# NOTE:
+# For the best experience, choose models with low latency.
+# Like don't use a thinking model for your default profile, it'll take forever.
+# If you do want to have a thinking model, the recommended way to use it is to add it as a profile and use it with the --profile (-p) flag.
+
+# Recommended models:
+# Gemini provides the best free experience with their 2.5 flash model.
+# OpenAI's GPT-4.1 is the best model for most use cases.
+# Anthropic's Claude 3.5 and 3.7 have the highest quality
+# If you're looking for a local model, Google's Gemma is a good choice, Ollama is a bit slow.
+################################################################################
+
+default_profile: "gemini"
 
 profiles:
   # OpenAI configuration
+  # common models: o4-mini-2025-04-16, gpt-4.1-2025-04-14, gpt-4o-2024-08-06
+  # find models: https://platform.openai.com/docs/models/overview
   openai:
     provider: "openai"
     api_key: "${OPENAI_API_KEY}" # Set OPENAI_API_KEY environment variable
-    model: "gpt-4"
-    max_tokens: 150
+    model: "gpt-4.1-2025-04-14"
+    max_tokens: 450
     temperature: 0.1
 
   # Google AI Gemini configuration
+  # common models: gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite-preview-06-17
+  # find models: https://ai.google.dev/gemini-api/docs/models
   gemini:
     provider: "gemini"
     api_key: "${GOOGLE_AI_API_KEY}" # Set GOOGLE_AI_API_KEY environment variable
-    model: "gemini-1.5-pro"
-    max_tokens: 150
+    model: "gemini-2.5-flash-lite-preview-06-17"
+    max_tokens: 450
+    temperature: 0.1
+
+  # Anthropic Claude configuration
+  # common models: claude-sonnet-4-20250514, claude-3-7-sonnet-20250219, claude-3-5-sonnet-20241022
+  # find them: https://docs.anthropic.com/en/docs/about-claude/models/overview#model-aliases
+  anthropic:
+    provider: "anthropic"
+    api_key: "${ANTHROPIC_API_KEY}" # Set ANTHROPIC_API_KEY environment variable
+    model: "claude-3-5-sonnet-20241022"
+    max_tokens: 450
     temperature: 0.1
 
   # Local model configuration (e.g., Ollama)
@@ -25,20 +52,16 @@ profiles:
     provider: "local"
     endpoint: "http://localhost:11434" # Ollama default endpoint
     model: "codellama"
-    max_tokens: 150
+    max_tokens: 450
 
-  # Anthropic Claude configuration
-  anthropic:
-    provider: "anthropic"
-    api_key: "${ANTHROPIC_API_KEY}" # Set ANTHROPIC_API_KEY environment variable
-    model: "claude-3-sonnet-20240229"
-    max_tokens: 150
-    temperature: 0.1
-
+# This is the history configuration.
+# NOTE: You NEED the enhanced logger to use this feature. read more about the enhanced logger here: https://github.com/Siutan/forgor#enhanced-shell-history-recommended
 history:
   max_commands: 10
-  shells: ["bash", "zsh", "fish"]
+  shells: ["bash", "zsh", "fish"] # you can add more shells here, or remove this line to use all shells
 
+# We provide an extensible list of keywords that can be used to filter sensitive information from the history.
+# You can add your own keywords to the list by editing the filters section.
 security:
   redact_sensitive: true
   filters:
@@ -48,6 +71,25 @@ security:
     - "key"
     - "api_key"
 
+# By default, forgor will find and cache common tools for you by cross-referencing your system with a list of common tools.
+# The LLM will then have knowledge of these tools and can use them to generate commands.
+# If you want to add your own tools, you can do so here.
+# you can see the list of available tools here: https://github.com/Siutan/forgor/blob/main/configs/config.yaml
+custom_tools:
+    package_managers: []
+    languages: []
+    development_tools:
+        - clang
+    system_commands: []
+    container_tools: []
+    cloud_tools: []
+    database_tools: []
+    network_tools: []
+    other:
+        - yt-dlp
+        - jq
+
+# These aren't used yet, but i have plans for them.
 output:
   format: "plain" # plain, json, interactive
   confirm_before_run: false
