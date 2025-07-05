@@ -62,14 +62,17 @@ func showVersion() {
 	}
 
 	// Show latest version info if available
-	showUpdateInfo()
+	utils.CheckForUpdates(Version)
 
 	fmt.Println()
 }
 
+func getForgorVersion() string {
+	return Version
+}
+
 func getGoVersion() string {
-	// This will be filled in by the Go runtime
-	return "go version not available"
+	return "1.23"
 }
 
 func getPlatform() string {
@@ -111,21 +114,6 @@ func isLinux() bool {
 		return true
 	}
 	return false
-}
-
-func showUpdateInfo() {
-	// Check if this is a development version
-	if Version == "dev" || Version == "unknown" {
-		fmt.Printf("\n%s %s\n",
-			utils.Styled("ℹ️", utils.StyleInfo),
-			utils.Styled("Development version - built from source", utils.StyleSubtle))
-		return
-	}
-
-	// In a future enhancement, you could add update checking here
-	fmt.Printf("\n%s %s\n",
-		utils.Styled("💡", utils.StyleInfo),
-		utils.Styled("Check for updates at: https://github.com/Siutan/forgor/releases", utils.StyleSubtle))
 }
 
 func init() {
