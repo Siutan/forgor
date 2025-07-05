@@ -313,6 +313,13 @@ func isLikelyCommand(input string) bool {
 
 // displayResponse formats and displays the LLM response
 func displayResponse(response *llm.Response, isExplanation bool) error {
+	// Save the command to cache for later use with 'forgor run' (do this first to ensure it's always saved)
+	if response.Command != "" {
+		if err := config.SaveLastCommand(response.Command); err != nil && verbose {
+			fmt.Printf("%s Failed to cache command: %v\n", utils.Styled("[WARNING]", utils.StyleWarning), err)
+		}
+	}
+
 	// Handle explanation display
 	if isExplanation {
 		fmt.Printf("\n%s\n", utils.Box("COMMAND EXPLANATION", "", utils.StyleInfo))
@@ -342,13 +349,6 @@ func displayResponse(response *llm.Response, isExplanation bool) error {
 	if !isExplanation {
 		fmt.Printf("\n%s\n", utils.Divider("GENERATED COMMAND", utils.StyleCommand))
 		fmt.Printf("%s\n", utils.SimpleBox(response.Command, utils.StyleCommand))
-	}
-
-	// Save the command to cache for later use with 'forgor run'
-	if response.Command != "" {
-		if err := config.SaveLastCommand(response.Command); err != nil && verbose {
-			fmt.Printf("%s Failed to cache command: %v\n", utils.Styled("[WARNING]", utils.StyleWarning), err)
-		}
 	}
 
 	// Show confidence and usage info in verbose mode
