@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bufio"
+	"fmt"
 	"forgor/internal/history"
 	"os"
 	"path/filepath"
@@ -76,17 +77,30 @@ func GetShellHistoryFile(shell string) string {
 		return ""
 	}
 
+	// Clean and validate the home directory path
+	homeDir = filepath.Clean(homeDir)
+
 	shell = strings.ToLower(shell)
+	var historyPath string
+
 	switch shell {
 	case "bash":
-		return filepath.Join(homeDir, ".bash_history")
+		historyPath = filepath.Join(homeDir, ".bash_history")
 	case "zsh":
-		return filepath.Join(homeDir, ".zsh_history")
+		historyPath = filepath.Join(homeDir, ".zsh_history")
 	case "fish":
-		return filepath.Join(homeDir, ".local", "share", "fish", "fish_history")
+		historyPath = filepath.Join(homeDir, ".local", "share", "fish", "fish_history")
 	default:
 		return ""
 	}
+
+	// Clean the final path and validate it's within the home directory
+	historyPath = filepath.Clean(historyPath)
+	if !strings.HasPrefix(historyPath, homeDir) {
+		return "" // Path traversal attempt detected
+	}
+
+	return historyPath
 }
 
 // DetectShellFromProcess attempts to detect shell from process information
@@ -188,13 +202,23 @@ func readFromCommandLog(maxCommands int) ([]history.HistoryEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	logFilePath := filepath.Join(homeDir, ".command_log")
+
+	// Clean and validate the home directory path
+	homeDir = filepath.Clean(homeDir)
+
+	// Construct and clean the log file path
+	logFilePath := filepath.Clean(filepath.Join(homeDir, ".command_log"))
+
+	// Validate that the path is within the home directory
+	if !strings.HasPrefix(logFilePath, homeDir) {
+		return nil, fmt.Errorf("invalid log file path: potential directory traversal")
+	}
 
 	if _, err := os.Stat(logFilePath); os.IsNotExist(err) {
 		return nil, err
 	}
 
-	file, err := os.Open(logFilePath)
+	file, err := os.Open(logFilePath) // #nosec G304 - path is validated above
 	if err != nil {
 		return nil, err
 	}
@@ -263,7 +287,12 @@ func ReadShellHistory(shell string, maxCommands int) ([]string, error) {
 
 // readBashHistory reads bash history (simple line-by-line format)
 func readBashHistory(historyFile string, maxCommands int) ([]string, error) {
-	file, err := os.Open(historyFile)
+	// Validate that the history file path is safe
+	if err := validateHistoryFilePath(historyFile); err != nil {
+		return []string{}, err
+	}
+
+	file, err := os.Open(historyFile) // #nosec G304 - path is validated above
 	if err != nil {
 		return []string{}, err
 	}
@@ -295,7 +324,12 @@ func readBashHistory(historyFile string, maxCommands int) ([]string, error) {
 
 // readZshHistory reads zsh history (extended format with timestamps)
 func readZshHistory(historyFile string, maxCommands int) ([]string, error) {
-	file, err := os.Open(historyFile)
+	// Validate that the history file path is safe
+	if err := validateHistoryFilePath(historyFile); err != nil {
+		return []string{}, err
+	}
+
+	file, err := os.Open(historyFile) // #nosec G304 - path is validated above
 	if err != nil {
 		return []string{}, err
 	}
@@ -343,10 +377,15 @@ func readZshHistory(historyFile string, maxCommands int) ([]string, error) {
 
 // readFishHistory reads fish history (YAML-like format)
 func readFishHistory(historyFile string, maxCommands int) ([]string, error) {
+	// Validate that the history file path is safe
+	if err := validateHistoryFilePath(historyFile); err != nil {
+		return []string{}, err
+	}
+
 	// Fish history is a bit more structured, often YAML-like
 	// - cmd: <command>
 	//   when: <timestamp>
-	file, err := os.Open(historyFile)
+	file, err := os.Open(historyFile) // #nosec G304 - path is validated above
 	if err != nil {
 		return []string{}, err
 	}
@@ -374,6 +413,58 @@ func readFishHistory(historyFile string, maxCommands int) ([]string, error) {
 	}
 
 	return commands[len(commands)-maxCommands:], nil
+}
+
+// validateHistoryFilePath validates that a history file path is safe to open
+func validateHistoryFilePath(historyFile string) error {
+	if historyFile == "" {
+		return fmt.Errorf("empty history file path")
+	}
+
+	// Clean the path to resolve any relative path components
+	cleanPath := filepath.Clean(historyFile)
+
+	// Get the user's home directory for validation
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("unable to determine home directory: %w", err)
+	}
+	homeDir = filepath.Clean(homeDir)
+
+	// Ensure the file is within the user's home directory or a system directory
+	validPrefixes := []string{
+		homeDir,
+		"/usr/",
+		"/opt/",
+		"/etc/",
+	}
+
+	// On Windows, also allow common system paths
+	if runtime.GOOS == "windows" {
+		validPrefixes = append(validPrefixes,
+			"C:\\Users\\",
+			"C:\\ProgramData\\",
+		)
+	}
+
+	isValidPath := false
+	for _, prefix := range validPrefixes {
+		if strings.HasPrefix(cleanPath, prefix) {
+			isValidPath = true
+			break
+		}
+	}
+
+	if !isValidPath {
+		return fmt.Errorf("history file path outside allowed directories: %s", cleanPath)
+	}
+
+	// Additional check: ensure no directory traversal attempts
+	if strings.Contains(historyFile, "..") {
+		return fmt.Errorf("potential directory traversal in path: %s", historyFile)
+	}
+
+	return nil
 }
 
 // filterSensitiveHistory removes commands that might contain sensitive information
