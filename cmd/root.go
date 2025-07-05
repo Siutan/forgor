@@ -38,13 +38,18 @@ var rootCmd = &cobra.Command{
 and get bash-friendly commands back, powered by an LLM.
 
 Examples:
-  forgor "find all txt files with hello in them"
-  ff "show me how to make a new tmux session called dev"
-  ff --history 2 "fix the above command"
-  ff -R "list all files in current directory"  # Force run the generated command`,
-	Args: cobra.MinimumNArgs(1),
+  forgor find all txt files with hello in them
+  ff show me how to make a new tmux session called dev
+  ff --history 2 fix the above command
+  ff -R list all files in current directory  # Force run the generated command
+  forgor -p gemini -e how much space is left on my disk?`,
+	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runQuery(cmd, args[0])
+		if len(args) == 0 {
+			return fmt.Errorf("no query provided")
+		}
+		query := strings.Join(args, " ")
+		return runQuery(cmd, query)
 	},
 	CompletionOptions: cobra.CompletionOptions{
 		DisableDefaultCmd: true,
