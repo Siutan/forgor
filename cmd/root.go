@@ -298,24 +298,6 @@ func runQuery(cmd *cobra.Command, query string) error {
 	return nil
 }
 
-// TODO: remove this function
-// isLikelyCommand checks if the input looks like a shell command
-func isLikelyCommand(input string) bool {
-	// Simple heuristic: if it starts with common command patterns
-	commandPrefixes := []string{
-		"ls", "cd", "mkdir", "rm", "cp", "mv", "find", "grep", "cat", "echo",
-		"ps", "kill", "top", "df", "du", "tar", "git", "docker", "npm", "pip",
-		"sudo", "chmod", "chown", "ssh", "scp", "curl", "wget",
-	}
-
-	for _, prefix := range commandPrefixes {
-		if len(input) >= len(prefix) && input[:len(prefix)] == prefix {
-			return true
-		}
-	}
-	return false
-}
-
 // displayResponse formats and displays the LLM response
 func displayResponse(response *llm.Response, isExplanation bool) error {
 	// Save the command to cache for later use with 'forgor run' (do this first to ensure it's always saved)
