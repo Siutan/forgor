@@ -2,9 +2,32 @@
 
 **LLM-powered command line memory assistant**
 
-> Transform natural language into shell commands with AI assistance
+> oops i forgor...
 
-`forgor` is a CLI tool that translates your natural language descriptions into executable shell commands using Large Language Models. Whether you forgot a specific syntax or need help crafting complex commands, `forgor` has your back.
+
+---
+
+## 📑 Table of Contents
+
+- [Features](#-features)
+- [Enhanced Shell History (Recommended)](#enhanced-shell-history-recommended)
+- [Installation](#-installation)
+- [Setup](#-setup)
+  - [Initialize Configuration](#1-initialize-configuration)
+  - [Set API Keys](#2-set-api-keys)
+  - [Set Default Provider](#3-set-default-provider)
+  - [Setup Shell Completion (Optional)](#4-setup-shell-completion-optional)
+  - [Tool Detection Coverage](#-tool-detection-coverage)
+- [Usage](#-usage)
+- [Examples](#-examples)
+- [Configuration](#-configuration)
+- [Safety Features](#️-safety-features)
+- [Roadmap](#-roadmap)
+- [Development](#-development)
+- [Contributing](#-contributing)
+- [Privacy & Security](#-privacy--security)
+- [License](#-license)
+- [Support](#-support)
 
 ---
 
@@ -130,6 +153,254 @@ forgor config completion              # Auto-detect shell
 # or specify shell explicitly
 forgor config completion zsh
 ```
+
+---
+
+### 🛠️ Tool Detection Coverage
+
+`forgor` automatically detects the following tools on your system to provide context-aware suggestions. Below is a comprehensive list of all tools it checks for, grouped by category.
+
+#### Package Managers
+
+| Name     |
+| -------- |
+| brew     |
+| apt      |
+| apt-get  |
+| yum      |
+| dnf      |
+| pacman   |
+| zypper   |
+| npm      |
+| pip      |
+| pip3     |
+| gem      |
+| cargo    |
+| go       |
+| composer |
+| yarn     |
+| bun      |
+| pnpm     |
+| bundle   |
+| poetry   |
+| pipenv   |
+
+#### Programming Languages
+
+| Name    | Commands Checked |
+| ------- | ---------------- |
+| python  | python, python3  |
+| node    | node             |
+| go      | go               |
+| java    | java             |
+| ruby    | ruby             |
+| php     | php              |
+| rust    | rustc            |
+| kotlin  | kotlinc          |
+| scala   | scala            |
+| swift   | swift            |
+| dart    | dart             |
+| dotnet  | dotnet           |
+| perl    | perl             |
+| lua     | lua              |
+| r       | R, Rscript       |
+| julia   | julia            |
+| elixir  | elixir           |
+| erlang  | erl              |
+| haskell | ghc              |
+| clojure | clojure          |
+| nim     | nim              |
+| zig     | zig              |
+
+#### Development Tools
+
+| Name      | Description                     |
+| --------- | ------------------------------- |
+| git       | Version control system          |
+| svn       | Subversion version control      |
+| make      | Build automation tool           |
+| cmake     | Cross-platform build system     |
+| gradle    | Build automation tool for Java  |
+| maven     | Build automation tool for Java  |
+| ansible   | Configuration management tool   |
+| terraform | Infrastructure as code tool     |
+| vagrant   | Development environment manager |
+| tmux      | Terminal multiplexer            |
+| screen    | Terminal multiplexer            |
+| vim       | Text editor                     |
+| nvim      | Neovim text editor              |
+| emacs     | Text editor                     |
+| code      | Visual Studio Code              |
+| subl      | Sublime Text                    |
+| atom      | Atom editor                     |
+
+#### System Commands
+
+| Name         |
+| ------------ |
+| ls           |
+| cd           |
+| pwd          |
+| mkdir        |
+| rmdir        |
+| rm           |
+| cp           |
+| mv           |
+| ln           |
+| find         |
+| grep         |
+| awk          |
+| sed          |
+| sort         |
+| uniq         |
+| head         |
+| tail         |
+| cat          |
+| less         |
+| more         |
+| file         |
+| which        |
+| whereis      |
+| locate       |
+| ps           |
+| top          |
+| htop         |
+| kill         |
+| killall      |
+| jobs         |
+| bg           |
+| fg           |
+| df           |
+| du           |
+| mount        |
+| umount       |
+| lsblk        |
+| fdisk        |
+| tar          |
+| gzip         |
+| gunzip       |
+| zip          |
+| unzip        |
+| 7z           |
+| chmod        |
+| chown        |
+| chgrp        |
+| umask        |
+| id           |
+| whoami       |
+| groups       |
+| date         |
+| cal          |
+| uptime       |
+| uname        |
+| hostname     |
+| who          |
+| w            |
+| history      |
+| alias        |
+| unalias      |
+| export       |
+| env          |
+| printenv     |
+| echo         |
+| printf       |
+| read         |
+| test         |
+| true         |
+| false        |
+| ssh          |
+| scp          |
+| rsync        |
+| curl         |
+| wget         |
+| ping         |
+| traceroute   |
+| netstat      |
+| ss           |
+| lsof         |
+| iptables     |
+| firewall-cmd |
+| forgor       |
+
+#### Container & Orchestration Tools
+
+| Name           |
+| -------------- |
+| docker         |
+| podman         |
+| buildah        |
+| skopeo         |
+| kubectl        |
+| helm           |
+| minikube       |
+| kind           |
+| k3s            |
+| docker-compose |
+| docker-machine |
+| containerd     |
+| cri-o          |
+| runc           |
+
+#### Cloud Tools
+
+| Name       |
+| ---------- |
+| aws        |
+| az         |
+| gcloud     |
+| gsutil     |
+| doctl      |
+| linode-cli |
+| vultr-cli  |
+| heroku     |
+| cf         |
+| oc         |
+| sam        |
+| serverless |
+| pulumi     |
+
+#### Database Tools
+
+| Name      |
+| --------- |
+| mysql     |
+| mariadb   |
+| psql      |
+| sqlite3   |
+| mongo     |
+| mongosh   |
+| redis-cli |
+| influx    |
+| cqlsh     |
+| snowsql   |
+| sqlplus   |
+| isql      |
+| bcp       |
+
+#### Network Tools
+
+| Name       |
+| ---------- |
+| curl       |
+| wget       |
+| httpie     |
+| http       |
+| nc         |
+| netcat     |
+| nmap       |
+| tcpdump    |
+| wireshark  |
+| tshark     |
+| dig        |
+| nslookup   |
+| telnet     |
+| ssh        |
+| scp        |
+| rsync      |
+| iperf      |
+| iperf3     |
+| mtr        |
+| traceroute |
 
 ---
 
@@ -382,6 +653,3 @@ MIT License - see [LICENSE](LICENSE) for details.
 - 💬 **Discussions**: [GitHub Discussions](https://github.com/Siutan/forgor/discussions)
 - 📧 **Email**: [Contact the maintainers](https://github.com/Siutan/forgor#maintainers)
 
----
-
-_"Never forget how to command your terminal again."_

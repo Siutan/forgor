@@ -38,13 +38,18 @@ var rootCmd = &cobra.Command{
 and get bash-friendly commands back, powered by an LLM.
 
 Examples:
-  forgor "find all txt files with hello in them"
-  ff "show me how to make a new tmux session called dev"
-  ff --history 2 "fix the above command"
-  ff -R "list all files in current directory"  # Force run the generated command`,
-	Args: cobra.MinimumNArgs(1),
+  forgor find all txt files with hello in them
+  ff show me how to make a new tmux session called dev
+  ff --history 2 fix the above command
+  ff -R list all files in current directory  # Force run the generated command
+  forgor -p gemini -e how much space is left on my disk?`,
+	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runQuery(cmd, args[0])
+		if len(args) == 0 {
+			return fmt.Errorf("no query provided")
+		}
+		query := strings.Join(args, " ")
+		return runQuery(cmd, query)
 	},
 	CompletionOptions: cobra.CompletionOptions{
 		DisableDefaultCmd: true,
@@ -293,26 +298,15 @@ func runQuery(cmd *cobra.Command, query string) error {
 	return nil
 }
 
-// TODO: remove this function
-// isLikelyCommand checks if the input looks like a shell command
-func isLikelyCommand(input string) bool {
-	// Simple heuristic: if it starts with common command patterns
-	commandPrefixes := []string{
-		"ls", "cd", "mkdir", "rm", "cp", "mv", "find", "grep", "cat", "echo",
-		"ps", "kill", "top", "df", "du", "tar", "git", "docker", "npm", "pip",
-		"sudo", "chmod", "chown", "ssh", "scp", "curl", "wget",
-	}
-
-	for _, prefix := range commandPrefixes {
-		if len(input) >= len(prefix) && input[:len(prefix)] == prefix {
-			return true
-		}
-	}
-	return false
-}
-
 // displayResponse formats and displays the LLM response
 func displayResponse(response *llm.Response, isExplanation bool) error {
+	// Save the command to cache for later use with 'forgor run' (do this first to ensure it's always saved)
+	if response.Command != "" {
+		if err := config.SaveLastCommand(response.Command); err != nil && verbose {
+			fmt.Printf("%s Failed to cache command: %v\n", utils.Styled("[WARNING]", utils.StyleWarning), err)
+		}
+	}
+
 	// Handle explanation display
 	if isExplanation {
 		fmt.Printf("\n%s\n", utils.Box("COMMAND EXPLANATION", "", utils.StyleInfo))
@@ -342,13 +336,6 @@ func displayResponse(response *llm.Response, isExplanation bool) error {
 	if !isExplanation {
 		fmt.Printf("\n%s\n", utils.Divider("GENERATED COMMAND", utils.StyleCommand))
 		fmt.Printf("%s\n", utils.SimpleBox(response.Command, utils.StyleCommand))
-	}
-
-	// Save the command to cache for later use with 'forgor run'
-	if response.Command != "" {
-		if err := config.SaveLastCommand(response.Command); err != nil && verbose {
-			fmt.Printf("%s Failed to cache command: %v\n", utils.Styled("[WARNING]", utils.StyleWarning), err)
-		}
 	}
 
 	// Show confidence and usage info in verbose mode
