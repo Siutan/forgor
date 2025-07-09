@@ -48,3 +48,4 @@ implementation-docs/
 # Build artifacts
 dist/
 build/ 
+bin/

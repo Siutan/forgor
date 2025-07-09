@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,65 @@ import (
 const (
 	githubRepo   = "Siutan/forgor"
 	githubApiURL = "https://api.github.com/repos/" + githubRepo + "/releases/latest"
+	// Security limits for extraction
+	maxDecompressedSize = 1024 * 1024 * 100 // 100MB limit
+	maxFileCount        = 1000              // max files in archive
 )
+
+// isValidURL validates if the URL is from an allowed domain
+func isValidURL(urlStr string) error {
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	// Only allow HTTPS
+	if parsedURL.Scheme != "https" {
+		return fmt.Errorf("only HTTPS URLs are allowed")
+	}
+
+	// Only allow GitHub domains for security
+	allowedHosts := []string{
+		"api.github.com",
+		"github.com",
+		"objects.githubusercontent.com",
+	}
+
+	for _, host := range allowedHosts {
+		if parsedURL.Host == host {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("URL host %s is not allowed", parsedURL.Host)
+}
+
+// sanitizePath validates and sanitizes file paths to prevent directory traversal
+func sanitizePath(basePath, userPath string) (string, error) {
+	// Clean the path to remove any .. or other traversal attempts
+	cleanPath := filepath.Clean(userPath)
+
+	// Check for absolute paths or paths that try to escape the base directory
+	if filepath.IsAbs(cleanPath) || strings.Contains(cleanPath, "..") {
+		return "", fmt.Errorf("invalid path: %s", userPath)
+	}
+
+	// Join with base path and check it's still within the base
+	fullPath := filepath.Join(basePath, cleanPath)
+	if !strings.HasPrefix(fullPath, filepath.Clean(basePath)+string(os.PathSeparator)) {
+		return "", fmt.Errorf("path escapes base directory: %s", userPath)
+	}
+
+	return fullPath, nil
+}
+
+// secureRemoveAll safely removes a directory with error handling
+func secureRemoveAll(path string) {
+	if err := os.RemoveAll(path); err != nil {
+		// Log the error but don't fail the operation
+		fmt.Printf("Warning: failed to clean up temporary directory %s: %v\n", path, err)
+	}
+}
 
 // ReleaseInfo holds information about a GitHub release
 type ReleaseInfo struct {
@@ -29,6 +88,11 @@ type ReleaseInfo struct {
 
 // httpGet performs a GET request and returns the response body
 func httpGet(url string) ([]byte, error) {
+	// Validate URL before making request
+	if err := isValidURL(url); err != nil {
+		return nil, fmt.Errorf("URL validation failed: %w", err)
+	}
+
 	client := &http.Client{Timeout: 15 * time.Second}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -104,7 +168,12 @@ func CheckForUpdates(currentVersion string) {
 
 // DownloadUpdate downloads a file from a URL to a new temporary directory and returns the path to the downloaded file.
 func DownloadUpdate(url string) (string, error) {
-	resp, err := http.Get(url)
+	// Validate URL before making request
+	if err := isValidURL(url); err != nil {
+		return "", fmt.Errorf("URL validation failed: %w", err)
+	}
+
+	resp, err := http.Get(url) // #nosec G107 - URL is validated above
 	if err != nil {
 		return "", fmt.Errorf("failed to perform GET request to %s: %w", url, err)
 	}
@@ -120,12 +189,23 @@ func DownloadUpdate(url string) (string, error) {
 		return "", fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
-	// Create the file in the temp directory
-	filePath := filepath.Join(tmpDir, filepath.Base(url))
-	file, err := os.Create(filePath)
+	// Create the file in the temp directory with sanitized path
+	fileName := filepath.Base(url)
+	if fileName == "." || fileName == "/" {
+		secureRemoveAll(tmpDir)
+		return "", fmt.Errorf("invalid filename from URL")
+	}
+
+	filePath, err := sanitizePath(tmpDir, fileName)
+	if err != nil {
+		secureRemoveAll(tmpDir)
+		return "", fmt.Errorf("path validation failed: %w", err)
+	}
+
+	file, err := os.Create(filePath) // #nosec G304 - path is sanitized above
 	if err != nil {
 		// If file creation fails, we should clean up the temp directory
-		os.RemoveAll(tmpDir)
+		secureRemoveAll(tmpDir)
 		return "", fmt.Errorf("failed to create file in temp dir: %w", err)
 	}
 	defer file.Close()
@@ -134,7 +214,7 @@ func DownloadUpdate(url string) (string, error) {
 	_, err = io.Copy(file, resp.Body)
 	if err != nil {
 		// If copy fails, we should clean up the temp directory and file
-		os.RemoveAll(tmpDir)
+		secureRemoveAll(tmpDir)
 		return "", fmt.Errorf("failed to write download to file: %w", err)
 	}
 
@@ -143,8 +223,16 @@ func DownloadUpdate(url string) (string, error) {
 
 // ExtractTarGz extracts a gzipped tar file to a destination directory.
 func ExtractTarGz(src, dest string) error {
+	// Validate source path
+	if !filepath.IsAbs(src) {
+		return fmt.Errorf("source path must be absolute")
+	}
+	if !filepath.IsAbs(dest) {
+		return fmt.Errorf("destination path must be absolute")
+	}
+
 	// Open the gzipped tar file
-	r, err := os.Open(src)
+	r, err := os.Open(src) // #nosec G304 - path is validated above
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
@@ -156,13 +244,16 @@ func ExtractTarGz(src, dest string) error {
 	}
 	defer gzr.Close()
 
-	// Create the destination directory
-	if err := os.MkdirAll(dest, 0755); err != nil {
+	// Create the destination directory with secure permissions
+	if err := os.MkdirAll(dest, 0750); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Extract the tar file
+	// Extract the tar file with security checks
 	tr := tar.NewReader(gzr)
+	var totalSize int64
+	fileCount := 0
+
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
@@ -172,26 +263,54 @@ func ExtractTarGz(src, dest string) error {
 			return fmt.Errorf("failed to read tar header: %w", err)
 		}
 
+		// Security check: limit number of files
+		fileCount++
+		if fileCount > maxFileCount {
+			return fmt.Errorf("archive contains too many files (limit: %d)", maxFileCount)
+		}
+
+		// Security check: limit total decompressed size
+		totalSize += header.Size
+		if totalSize > maxDecompressedSize {
+			return fmt.Errorf("archive too large when decompressed (limit: %d bytes)", maxDecompressedSize)
+		}
+
+		// Sanitize the path to prevent directory traversal
+		target, err := sanitizePath(dest, header.Name)
+		if err != nil {
+			return fmt.Errorf("invalid path in archive: %w", err)
+		}
+
 		// Check if the file is a directory
 		if header.Typeflag == tar.TypeDir {
-			if err := os.MkdirAll(filepath.Join(dest, header.Name), 0755); err != nil {
+			if err := os.MkdirAll(target, 0750); err != nil {
 				return fmt.Errorf("failed to create directory: %w", err)
 			}
 			continue
 		}
 
-		// Extract the file
-		target := filepath.Join(dest, header.Name)
-		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+		// Create parent directories if needed
+		if err := os.MkdirAll(filepath.Dir(target), 0750); err != nil {
 			return fmt.Errorf("failed to create directory: %w", err)
 		}
-		file, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
+
+		// Convert file mode safely to avoid integer overflow
+		var fileMode os.FileMode
+		if header.Mode >= 0 && header.Mode <= 0777 {
+			fileMode = os.FileMode(header.Mode) & 0777
+		} else {
+			fileMode = 0644 // Default safe permissions
+		}
+
+		file, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, fileMode) // #nosec G304 - path is sanitized above
 		if err != nil {
 			return fmt.Errorf("failed to open file: %w", err)
 		}
 		defer file.Close()
 
-		_, err = io.Copy(file, tr)
+		// Copy with size limit to prevent decompression bombs
+		limited := io.LimitReader(tr, header.Size)
+		_, err = io.Copy(file, limited) // #nosec G110 - size is limited above
 		if err != nil {
 			return fmt.Errorf("failed to write to file: %w", err)
 		}
