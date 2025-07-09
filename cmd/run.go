@@ -84,6 +84,46 @@ Examples:
 	},
 }
 
+// bangCmd represents the ! command - alias for running last command with force
+var bangCmd = &cobra.Command{
+	Use:   "!",
+	Short: "Execute the last generated command (force, no confirmation)",
+	Long: `Execute the last generated command with force enabled, skipping all confirmation prompts.
+
+This is equivalent to running "forgor run --force" but more convenient for quick execution.
+Similar to how "sudo !!" runs the last command in Linux.
+
+Examples:
+  forgor !        # Execute last generated command without confirmation
+  ff !            # Same as above (if using ff alias)`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Load the last generated command
+		command, err := config.LoadLastCommand()
+		if err != nil {
+			return err
+		}
+
+		if !runQuiet {
+			fmt.Printf("%s %s\n",
+				utils.Styled("Force executing last command:", utils.StyleInfo),
+				utils.Styled(command, utils.StyleCommand))
+		}
+
+		// Force execution by temporarily setting runForce
+		oldForceRun := runForce
+		runForce = true
+		defer func() { runForce = oldForceRun }()
+
+		if verbose && !runQuiet {
+			fmt.Printf("🔍 Executing command: %s\n", command)
+		}
+
+		// Use enhanced danger assessment
+		return executeCommandEnhanced(command)
+	},
+}
+
 // executeCommandEnhanced runs a command with sophisticated danger assessment
 func executeCommandEnhanced(command string) error {
 	if command == "" {
@@ -248,6 +288,7 @@ func getDangerIcon(level llm.DangerLevel) string {
 
 func init() {
 	rootCmd.AddCommand(runCmd)
+	rootCmd.AddCommand(bangCmd)
 
 	// Add flags for the run command
 	runCmd.Flags().BoolVarP(&runForce, "force", "F", false, "force execute without confirmation (DANGEROUS)")
