@@ -699,8 +699,6 @@ func normalizeCommitMessage(raw string) string {
 		return subject + "\n\n" + footer
 	}
 
-	// Debug: show extracted pieces (use fmt to avoid incorrect print usage)
-	fmt.Printf("subject: %s\nbody: %s\nfooter: %s\n", subject, body, footer)
 	return subject
 }
 
