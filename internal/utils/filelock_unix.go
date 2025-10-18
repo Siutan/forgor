@@ -10,8 +10,7 @@ locking without importing syscall directly.
 Build constraints:
 - Included on: darwin, linux, freebsd, netbsd, openbsd, dragonfly, solaris
 */
-////go:build darwin || linux || freebsd || netbsd || openbsd || dragonfly || solaris
-// +build darwin linux freebsd netbsd openbsd dragonfly solaris
+//go:build darwin || linux || freebsd || netbsd || openbsd || dragonfly || solaris
 
 package utils
 
