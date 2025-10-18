@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/Siutan/forgor/compare/v0.8.0...v0.8.1) (2025-10-18)
+
+
+### Bug Fixes
+
+* wire release artifact workflow into release ([6b3906e](https://github.com/Siutan/forgor/commit/6b3906e339b8dbbb0cdcbb9d953fbb7b3f4ea253))
+
 ## [0.8.0](https://github.com/Siutan/forgor/compare/v0.7.2...v0.8.0) (2025-10-18)
 
 
