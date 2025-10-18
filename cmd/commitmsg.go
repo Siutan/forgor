@@ -24,7 +24,9 @@ var conventionalTypes = map[string]struct{}{
 
 // Recognized footer prefixes. Only these are allowed in the "footer".
 var footerPrefixes = []string{
-	"BREAKING CHANGE:", "BREAKING-CHANGE:",
+    "BREAKING CHANGE:", "BREAKING-CHANGE:",
+    // Standard issue-referencing prefixes
+    "Closes ", "Fixes ", "Resolves ", "Refs ", "Relates ",
 }
 
 // trimRunes trims a string to a maximum number of runes.
