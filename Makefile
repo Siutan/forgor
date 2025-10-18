@@ -17,16 +17,12 @@ GOCLEAN=$(GOCMD) clean
 GOMOD=$(GOCMD) mod
 
 .PHONY: help build clean test test-coverage lint fmt vet deps update-deps \
-        build-all version version-info version-bump-patch version-bump-minor \
-        version-bump-major version-bump-prerelease version-check \
-        release-patch release-minor release-major release-prerelease \
+        build-all version version-info \
         install uninstall run dev check-quality create-pr pre-commit
 
 # Default target
 help: ## Show this help message
 	@echo "🔥 Forgor CLI Makefile (v$(VERSION))"
-	@echo "Git: $(GIT_COMMIT)"
-	@echo "Built: $(BUILD_DATE)"
 	@echo ""
 	@echo "Available targets:"
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -36,8 +32,6 @@ build: ## Build the binary
 	@echo "🔨 Building $(BINARY_NAME) v$(VERSION)..."
 	@echo "📦 Target: $(BINARY_NAME)"
 	@echo "🏷️  Version: $(VERSION)"
-	@echo "📝 Git Commit: $(GIT_COMMIT)"
-	@echo "📅 Build Date: $(BUILD_DATE)"
 	@echo ""
 	$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) -v
 	@echo ""
@@ -45,8 +39,6 @@ build: ## Build the binary
 
 build-all: ## Build for all platforms
 	@echo "🔨 Building $(BINARY_NAME) v$(VERSION) for all platforms..."
-	@echo "📝 Git Commit: $(GIT_COMMIT)"
-	@echo "📅 Build Date: $(BUILD_DATE)"
 	@echo ""
 	@mkdir -p $(BUILD_DIR)
 	@echo "🐧 Building for Linux amd64..."
@@ -82,13 +74,11 @@ clean: ## Clean build artifacts
 # Testing targets
 test: ## Run tests
 	@echo "🧪 Running tests for $(BINARY_NAME) v$(VERSION)..."
-	@echo "📝 Git Commit: $(GIT_COMMIT)"
 	@echo ""
 	$(GOTEST) -v ./...
 
 test-coverage: ## Run tests with coverage
 	@echo "🧪 Running tests with coverage for $(BINARY_NAME) v$(VERSION)..."
-	@echo "📝 Git Commit: $(GIT_COMMIT)"
 	@echo ""
 	$(GOTEST) -v -race -coverprofile=coverage.out ./...
 	$(GOCMD) tool cover -html=coverage.out -o coverage.html
@@ -143,8 +133,6 @@ run: build ## Build and run the application
 dev: ## Run in development mode (with version info)
 	@echo "🚀 Running $(BINARY_NAME) in development mode..."
 	@echo "🏷️  Version: $(VERSION)"
-	@echo "📝 Git Commit: $(GIT_COMMIT)"
-	@echo "📅 Build Date: $(BUILD_DATE)"
 	@echo "=========================="
 	$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) && ./$(BINARY_NAME)
 
@@ -156,90 +144,12 @@ version-info: ## Display current version info
 	@echo "================================="
 	@echo "📦 Binary Name: $(BINARY_NAME)"
 	@echo "🏷️  Current Version: $(VERSION)"
-	@echo "📝 Git Commit: $(GIT_COMMIT)"
-	@echo "📅 Build Date: $(BUILD_DATE)"
 	@echo "💾 Version File: VERSION"
 
-version-check: ## Validate VERSION file format
-	@echo "🔍 Validating VERSION file format..."
-	@if [ ! -f "VERSION" ]; then \
-		echo "❌ VERSION file not found"; \
-		exit 1; \
-	fi
-	@if ! grep -E '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$$' VERSION >/dev/null; then \
-		echo "❌ Invalid version format in VERSION file"; \
-		echo "Expected: MAJOR.MINOR.PATCH[-PRERELEASE]"; \
-		exit 1; \
-	fi
-	@echo "✅ VERSION file format is valid: $(VERSION)"
-
-version-bump-patch: ## Bump patch version
-	@if [ -f "scripts/version.sh" ]; then \
-		scripts/version.sh bump patch; \
-	else \
-		echo "❌ scripts/version.sh not found"; \
-		exit 1; \
-	fi
-
-version-bump-minor: ## Bump minor version
-	@if [ -f "scripts/version.sh" ]; then \
-		scripts/version.sh bump minor; \
-	else \
-		echo "❌ scripts/version.sh not found"; \
-		exit 1; \
-	fi
-
-version-bump-major: ## Bump major version
-	@if [ -f "scripts/version.sh" ]; then \
-		scripts/version.sh bump major; \
-	else \
-		echo "❌ scripts/version.sh not found"; \
-		exit 1; \
-	fi
-
-version-bump-prerelease: ## Bump prerelease version
-	@if [ -f "scripts/version.sh" ]; then \
-		scripts/version.sh bump prerelease; \
-	else \
-		echo "❌ scripts/version.sh not found"; \
-		exit 1; \
-	fi
-
-# Release targets
-release-patch: version-bump-patch ## Create a patch release
-	@if [ -f "scripts/version.sh" ]; then \
-		scripts/version.sh release; \
-	else \
-		echo "❌ scripts/version.sh not found"; \
-		exit 1; \
-	fi
-
-release-minor: version-bump-minor ## Create a minor release
-	@if [ -f "scripts/version.sh" ]; then \
-		scripts/version.sh release; \
-	else \
-		echo "❌ scripts/version.sh not found"; \
-		exit 1; \
-	fi
-
-release-major: version-bump-major ## Create a major release
-	@if [ -f "scripts/version.sh" ]; then \
-		scripts/version.sh release; \
-	else \
-		echo "❌ scripts/version.sh not found"; \
-		exit 1; \
-	fi
-
-release-prerelease: version-bump-prerelease ## Create a prerelease
-	@if [ -f "scripts/version.sh" ]; then \
-		scripts/version.sh release; \
-	else \
-		echo "❌ scripts/version.sh not found"; \
-		exit 1; \
-	fi
+# Manual versioning and release targets removed (handled by CI)
 
 # PR and development workflow targets
-pre-commit: check-quality version-check ## Run pre-commit checks
+pre-commit: check-quality ## Run pre-commit checks
 	@echo "✅ Ready for commit!"
 
 create-pr: ## Create a pull request with quality checks

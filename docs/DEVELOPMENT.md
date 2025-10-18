@@ -270,19 +270,12 @@ func TestFunctionName(t *testing.T) {
 
 The project uses [Semantic Versioning](https://semver.org/):
 
-```bash
-# Patch (bug fixes): 1.0.0 → 1.0.1
-make version-bump-patch
+Use Conventional Commits to control semantic versioning. CI bumps the version on push to main based on commit messages:
 
-# Minor (new features): 1.0.0 → 1.1.0
-make version-bump-minor
-
-# Major (breaking changes): 1.0.0 → 2.0.0
-make version-bump-major
-
-# Prerelease: 1.0.0 → 1.0.1-alpha.1
-make version-bump-prerelease
-```
+- feat: add feature → minor
+- fix: bug fix → patch
+- feat!: breaking change (or include "BREAKING CHANGE:" in the body) → major
+- docs:, chore:, ci:, test: → no bump
 
 ### When to Bump Version
 
@@ -301,14 +294,7 @@ make version-bump-prerelease
 
 ### Release Process
 
-```bash
-# Create release (bumps version and creates tag)
-make release-patch   # or release-minor, release-major
-
-# Manual release
-scripts/version.sh bump patch
-scripts/version.sh release
-```
+Releases are created automatically when CI bumps the version and pushes a tag (vX.Y.Z) on main. No manual release commands are needed.
 
 ## 🛠️ Troubleshooting
 
@@ -335,8 +321,7 @@ go test ./path/to/package -v -run TestFunctionName
 **❌ "Version hasn't been bumped"**
 
 ```bash
-# For PRs to main, bump version
-make version-bump-patch  # or minor/major
+# For PRs to main, ensure commit messages follow Conventional Commits (feat/fix/feat! or BREAKING CHANGE) so CI can infer the bump
 ```
 
 **❌ "GitHub CLI not authenticated"**
@@ -362,8 +347,7 @@ git status
 # Check current version
 make version-info
 
-# Validate VERSION file
-make version-check
+# VERSION is managed by CI; no manual version check is required
 
 # Check dependencies
 make deps
@@ -392,9 +376,11 @@ git add . && git commit -m "style: fix formatting"
 make test  # Run locally first
 # Fix issues, then commit
 
-# Bump version
-make version-bump-patch
-git add VERSION && git commit -m "chore: bump version"
+# If the version bump wasn't what you expected, amend your commit message to follow Conventional Commits:
+#   feat: ...        (minor)
+#   fix: ...         (patch)
+#   feat!: ...       (major) or include "BREAKING CHANGE:" in the body
+# Then push the updated commit.
 ```
 
 ## 📚 Useful Resources

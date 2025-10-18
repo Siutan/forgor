@@ -93,17 +93,18 @@ ${YELLOW}QUALITY CHECKS:${NC}
     ${CHECK} Code formatting (gofmt)
     ${CHECK} Linting (go vet)
     ${CHECK} Tests pass
-    ${CHECK} Version bump validation
+    ${CHECK} Commit message follows Conventional Commits
     ${CHECK} Git status clean
     ${CHECK} Branch up to date
 
-${YELLOW}VERSION REQUIREMENTS:${NC}
-    This script will check if you've bumped the version in the VERSION file.
-    If not, it will prompt you to do so using:
+${YELLOW}COMMIT MESSAGE GUIDELINES:${NC}
+    Versioning is automatic and inferred from commit messages on main.
+    Use Conventional Commits to control the next version:
     
-    make version-bump-patch    # For bug fixes
-    make version-bump-minor    # For new features
-    make version-bump-major    # For breaking changes
+    feat: add feature             # minor
+    fix: correct issue            # patch
+    feat!: breaking change        # major
+    (or include "BREAKING CHANGE:" in the body)
 
 EOF
 }
@@ -302,62 +303,7 @@ run_tests() {
 }
 
 # Check version bump
-check_version_bump() {
-    print_step "Checking version bump..."
-    
-    if [[ ! -f "VERSION" ]]; then
-        print_error "VERSION file not found"
-        print_info "Create one with: echo '0.1.0' > VERSION"
-        exit 1
-    fi
-    
-    CURRENT_VERSION=$(cat VERSION | tr -d '\n' | tr -d ' ')
-    
-    # Get the version from main branch
-    MAIN_VERSION=""
-    if git show main:VERSION &>/dev/null; then
-        MAIN_VERSION=$(git show main:VERSION | tr -d '\n' | tr -d ' ')
-    fi
-    
-    if [[ -n "$MAIN_VERSION" && "$CURRENT_VERSION" == "$MAIN_VERSION" ]]; then
-        print_warning "Version hasn't been bumped from main ($MAIN_VERSION)"
-        print_info "You need to bump the version. Choose one:"
-        echo ""
-        echo -e "  ${GREEN}make version-bump-patch${NC}  # For bug fixes (x.y.Z)"
-        echo -e "  ${GREEN}make version-bump-minor${NC}  # For new features (x.Y.z)"
-        echo -e "  ${GREEN}make version-bump-major${NC}  # For breaking changes (X.y.z)"
-        echo ""
-        
-        if [[ "$FORCE" == "false" ]]; then
-            read -p "Would you like to bump the version now? [patch/minor/major/skip]: " choice
-            case $choice in
-                patch|p)
-                    make version-bump-patch
-                    print_success "Version bumped to patch level"
-                    ;;
-                minor|m)
-                    make version-bump-minor
-                    print_success "Version bumped to minor level"
-                    ;;
-                major|M)
-                    make version-bump-major
-                    print_success "Version bumped to major level"
-                    ;;
-                skip|s)
-                    print_warning "Skipping version bump (PR may fail CI)"
-                    ;;
-                *)
-                    print_error "Invalid choice. Exiting."
-                    exit 1
-                    ;;
-            esac
-        else
-            print_warning "Skipping version bump due to --force flag"
-        fi
-    else
-        print_success "Version bumped to $CURRENT_VERSION"
-    fi
-}
+# Version bump checks removed; CI infers version from Conventional Commits.
 
 # Build project to ensure it compiles
 build_project() {
@@ -401,7 +347,7 @@ Changes in this PR:
 ## Checklist
 - [x] Code is formatted
 - [x] Tests pass
-- [x] Version bumped (if needed)
+- [x] Commit message follows Conventional Commits (feat/fix/feat! or BREAKING CHANGE)
 - [x] Documentation updated (if needed)"
     fi
     
@@ -469,7 +415,7 @@ main() {
     format_code
     run_linting
     run_tests
-    check_version_bump
+    # Version bump check removed; CI handles versioning based on Conventional Commits
     build_project
     
     # Push and create PR

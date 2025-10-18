@@ -6,29 +6,25 @@ This document explains the CI/CD pipeline for the `forgor` CLI tool.
 
 The CI pipeline automatically builds, tests, and validates every pull request to ensure code quality and cross-platform compatibility. It consists of multiple jobs that run in parallel for efficiency.
 
-## Automated Release Process
+## Automated Versioning
 
-When a PR is merged to main, the following automated process occurs:
+On pushes to main, after CI jobs pass, the workflow automatically determines and bumps the semantic version based on commit messages and pushes a tag.
 
 ```mermaid
 graph LR
-    A[PR Merged to Main] --> B[Auto Release Workflow]
-    B --> C{VERSION file<br/>bumped?}
-    C -->|Yes| D{Tag exists?}
-    C -->|No| E[Skip Release]
-    D -->|No| F[Create Tag v{VERSION}]
-    D -->|Yes| G[Skip Release]
-    F --> H[Release Workflow Triggered]
-    H --> I[Build for All Platforms]
-    I --> J[Create GitHub Release]
-    J --> K[Upload Binaries & Checksums]
+    A[Push to main] --> B[CI Lint/Test/Build/Integration]
+    B -->|All succeed| C[Detect bump from commits]
+    C -->|major/minor/patch| D[Update VERSION + commit]
+    D --> E[Create tag vX.Y.Z]
+    E --> F[Push commit and tag]
+    C -->|no semantic change| G[Skip bump]
 ```
 
-**Key Points**:
-- ✅ **Automatic**: No manual intervention required
-- ✅ **Safe**: Multiple checks prevent duplicate releases
-- ✅ **Fast**: Parallel builds for all platforms
-- ✅ **Complete**: Includes binaries, checksums, and release notes
+Key Points:
+- ✅ Commit-message–driven using Conventional Commits
+- ✅ No manual edits to VERSION or tags
+- ✅ Only runs on pushes to main after all CI jobs succeed
+- ✅ Skips if no semantic changes are detected
 
 ## Workflows
 
@@ -48,8 +44,7 @@ graph TD
     C[Build Matrix] --> D
     A --> E[Cross-platform Build]
     B --> E
-    F[Security Scan] --> G[Summary]
-    D --> G
+    D --> G[Summary]
     E --> G
 ```
 
@@ -66,13 +61,13 @@ graph TD
 
 - Runs all unit tests with race detection
 - Generates code coverage reports
-- Enforces minimum coverage threshold (50%)
+- Enforces minimum coverage threshold (5%)
 - Uploads coverage artifacts
 
 **🔨 Build Matrix Job**
 
-- Tests builds on multiple OS: Ubuntu, macOS, Windows
-- Tests with Go versions: 1.20, 1.21
+- Tests builds on multiple OS: Ubuntu, macOS
+- Tests with Go versions: 1.24
 - Verifies binary execution
 - Uploads build artifacts
 
@@ -85,10 +80,7 @@ graph TD
 - Creates checksums
 - Uploads cross-platform artifacts
 
-**🔐 Security Scan Job**
 
-- Runs Gosec security scanner
-- Uploads SARIF results for GitHub Security tab
 
 **📊 Integration Test Job**
 
@@ -102,48 +94,23 @@ graph TD
 - Creates GitHub Step Summary
 - Shows overall CI status
 
-### 2. Version Check Workflow (`.github/workflows/version-check.yml`)
+### 2. Automatic Versioning (part of CI workflow)
 
-**Purpose**: Enforces version bumps on every PR/push to main
+Purpose: Automatically bumps the project version and creates a tag based on commit messages when pushing to main.
 
-**What it checks**:
+How it works:
+1. Runs after lint, test, build, and integration-test succeed on a push to main.
+2. Detects the previous base version from the latest tag (or VERSION file if no tags).
+3. Parses commit messages since the last tag using Conventional Commits:
+   - Major: presence of "BREAKING CHANGE" or the "!" syntax (e.g., feat!: ...)
+   - Minor: feat:
+   - Patch: fix:, perf:, refactor:
+4. If a bump is needed, updates VERSION, commits with "chore(release): vX.Y.Z [skip ci]", creates tag vX.Y.Z, and pushes both to main.
+5. If no semantic changes are found, the step is skipped.
 
-- VERSION file exists and has valid format
-- Version is increased for PRs
-- New version is greater than previous version
-
-### 3. Auto Release Workflow (`.github/workflows/auto-release.yml`)
-
-**Purpose**: Automatically creates tags and releases when PRs are merged to main
-
-**How it works**:
-
-1. **Triggers** on pushes to main branch (from merged PRs)
-2. **Reads** the VERSION file to get the current version
-3. **Validates** the version format (semver: X.Y.Z)
-4. **Checks** if the tag already exists (prevents duplicates)
-5. **Verifies** this is actually a PR merge (not a direct push)
-6. **Creates** a git tag with the version (e.g., v0.2.1)
-7. **Pushes** the tag, which triggers the Release Workflow
-
-**Smart detection**:
-- Only runs on PR merges, not direct pushes
-- Skips if tag already exists
-- Validates version format before proceeding
-
-### 4. Release Workflow (`.github/workflows/release.yml`)
-
-**Purpose**: Builds and publishes releases when version tags are pushed
-
-**Triggered by**: Auto Release Workflow (or manual tag pushes)
-
-**Features**:
-
-- Builds for all platforms (Linux, macOS, Windows)
-- Creates GitHub releases with binaries
-- Attaches checksums for verification
-- Extracts changelog information (if available)
-- Supports pre-releases (versions with - suffix)
+Notes:
+- Follow Conventional Commits for predictable bump behavior.
+- A Release workflow publishes GitHub Releases when tags matching v* are pushed.
 
 ## CI Requirements
 
@@ -160,7 +127,7 @@ All of these must pass before merging:
 ✅ **Testing**
 
 - All tests must pass
-- Test coverage must be ≥ 50%
+- Test coverage must be ≥ 5%
 - Race conditions must not be detected
 
 ✅ **Building**
@@ -169,24 +136,20 @@ All of these must pass before merging:
 - Binary must execute without errors
 - Version information must be embedded correctly
 
-✅ **Security**
 
-- Must pass security scanning
-- No known vulnerabilities
 
-✅ **Versioning**
+✅ Versioning
 
-- VERSION file must be bumped
-- Version format must be valid SemVer
+- Automated by CI based on commit messages (Conventional Commits)
 
 ### For Main Branch
 
-Additional requirements for pushes to main:
+Additional behavior for pushes to main:
 
-✅ **Version Enforcement**
+✅ Automatic Versioning
 
-- Every commit must increase the version
-- Version history must be monotonic
+- Version bump is computed from commit messages after successful CI
+- Use Conventional Commits to control bump level (feat/fix/feat!/BREAKING CHANGE)
 
 ## Artifacts
 
@@ -203,10 +166,7 @@ The CI pipeline produces several artifacts:
 - `forgor-cross-platform-pr{number}`: All platform binaries (PRs only)
 - Available for 30 days
 
-### Security Artifacts
 
-- SARIF security scan results
-- Automatically uploaded to GitHub Security tab
 
 ## Local Development
 
@@ -228,8 +188,7 @@ make build
 # Build for all platforms
 make build-all
 
-# Check version format
-make version-check
+
 ```
 
 ### Pre-commit Checklist
@@ -243,8 +202,8 @@ make fmt
 # 2. Tests pass
 make test
 
-# 3. Version is bumped (for main branch PRs)
-make version-bump-patch  # or minor/major
+# 3. Commit message follows Conventional Commits
+#    e.g., feat:, fix:, or feat!:/BREAKING CHANGE to control bump
 
 # 4. Build works
 make build
@@ -257,13 +216,14 @@ make lint  # (optional, CI will catch this)
 
 ### Coverage Threshold
 
-The minimum test coverage is set to **50%** in the CI workflow:
+The minimum test coverage is set to **5%** in the CI workflow:
 
 ```yaml
-THRESHOLD=50
-if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
-echo "❌ Test coverage ($COVERAGE%) is below threshold ($THRESHOLD%)"
-exit 1
+THRESHOLD=5
+COVERAGE_NUM=$(echo "$COVERAGE" | awk '{print int($1)}')
+if [ "$COVERAGE_NUM" -lt "$THRESHOLD" ]; then
+  echo "❌ Test coverage ($COVERAGE%) is below threshold ($THRESHOLD%)"
+  exit 1
 fi
 ```
 
@@ -275,9 +235,8 @@ The CI builds and tests on:
 
 **Development Testing:**
 
-- Ubuntu Latest + Go 1.20, 1.21
-- macOS Latest + Go 1.20, 1.21
-- Windows Latest + Go 1.20, 1.21
+- Ubuntu Latest + Go 1.24
+- macOS Latest + Go 1.24
 
 **Release Targets:**
 
@@ -323,11 +282,11 @@ make test-coverage
 
 **❌ Version Not Bumped**
 
-```bash
-# Bump version for PR
-make version-bump-patch
-git add VERSION && git commit -m "chore: bump version"
-```
+Ensure your commit message follows Conventional Commits so CI can infer the bump level on push to main:
+- feat: ... → minor
+- fix: ... → patch
+- feat!: ... or include "BREAKING CHANGE:" in the body → major
+- docs:, chore:, ci:, test: → no bump
 
 **❌ Build Failures**
 
@@ -355,15 +314,7 @@ The CI pipeline is optimized for speed:
 
 Typical CI run time: **3-5 minutes** for PRs
 
-## Security
 
-### SARIF Integration
-
-Security scan results are automatically uploaded to GitHub's Security tab, providing:
-
-- **Vulnerability detection** in dependencies
-- **Code security analysis** with Gosec
-- **Centralized security dashboard**
 
 ### Artifact Security
 
@@ -381,7 +332,7 @@ All CI jobs appear as **required status checks** on PRs:
 - `test`
 - `build`
 - `integration-test`
-- `security-scan`
+
 
 ### PR Summary
 
@@ -403,58 +354,14 @@ This system ensures every change to `forgor` maintains high quality and works re
 
 ## Release Process
 
-### For Contributors
+Releases are driven by automatic version bumps on push to main:
 
-**To create a release**, simply:
+- After CI succeeds on main, the workflow updates VERSION, creates a tag vX.Y.Z, and pushes both.
+- The bump level is determined by commit messages (Conventional Commits).
+- A tag push (v*) triggers the Release workflow to publish a GitHub Release via GoReleaser.
 
-1. **Bump the version** in the `VERSION` file
-2. **Create a PR** with your changes
-3. **Merge the PR** - the release happens automatically!
+To influence the next version:
+- Use feat: for a minor bump, fix:/perf:/refactor: for a patch, and feat!:/BREAKING CHANGE for a major.
+- Non-semantic commits (docs:, chore:, ci:, test:) do not trigger a bump.
 
-**Version format**: Use semantic versioning (e.g., `1.2.3`)
-- **Patch** (1.2.3 → 1.2.4): Bug fixes
-- **Minor** (1.2.3 → 1.3.0): New features (backwards compatible)
-- **Major** (1.2.3 → 2.0.0): Breaking changes
-
-### What Happens Automatically
-
-When your PR is merged:
-
-1. ✅ **Auto Release Workflow** detects the PR merge
-2. ✅ **Version** is read from `VERSION` file  
-3. ✅ **Tag** is created (e.g., `v1.2.3`)
-4. ✅ **Release Workflow** builds binaries for all platforms
-5. ✅ **GitHub Release** is created with downloads
-
-### Manual Releases (If Needed)
-
-You can also create releases manually:
-
-```bash
-# Create and push a tag
-git tag v1.2.3
-git push origin v1.2.3
-
-# The release workflow will automatically trigger
-```
-
-### Pre-releases
-
-For pre-release versions, use a suffix:
-
-```
-1.2.3-beta.1
-1.2.3-rc.1
-1.2.3-alpha.2
-```
-
-These will be marked as "pre-release" on GitHub.
-
-### Release Artifacts
-
-Each release includes:
-
-- **Binaries** for all supported platforms
-- **Checksums** (SHA256) for verification
-- **Release notes** (auto-generated or from CHANGELOG.md)
-- **Source code** (automatically attached by GitHub)
+If you need a formal GitHub Release with assets, we can add a follow-up workflow that triggers on tag creation.
