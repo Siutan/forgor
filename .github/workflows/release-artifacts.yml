@@ -1,0 +1,96 @@
+name: Release Artifacts
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-upload:
+    name: Build and upload release binaries
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Derive version and metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(echo "${{ github.event.release.tag_name }}" | sed 's/^v//')"
+          COMMIT="$(git rev-parse HEAD)"
+          BUILD_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "build_date=$BUILD_DATE" >> "$GITHUB_OUTPUT"
+
+          echo "Release tag: ${{ github.event.release.tag_name }}"
+          echo "Version: $VERSION"
+          echo "Commit: $COMMIT"
+          echo "Build date: $BUILD_DATE"
+
+      - name: Build cross-platform artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.meta.outputs.version }}"
+          COMMIT="${{ steps.meta.outputs.commit }}"
+          BUILD_DATE="${{ steps.meta.outputs.build_date }}"
+
+          LDFLAGS="-s -w -X 'forgor/cmd.Version=$VERSION' -X 'forgor/cmd.GitCommit=$COMMIT' -X 'forgor/cmd.BuildDate=$BUILD_DATE'"
+
+          mkdir -p dist
+
+          build() {
+            local os="$1" arch="$2"
+            local bin="forgor"
+            local out="forgor_${os}_${arch}"
+
+            echo "Building ${out} ..."
+            CGO_ENABLED=0 GOOS="$(echo "$os" | tr '[:upper:]' '[:lower:]')" GOARCH="$arch" \
+              go build -ldflags "$LDFLAGS" -o "$bin" .
+
+            # Package as tar.gz with the binary at the root
+            tar -czf "dist/${out}.tar.gz" "$bin"
+            rm -f "$bin"
+          }
+
+          # macOS (Darwin)
+          build "Darwin" "amd64"
+          build "Darwin" "arm64"
+
+          # Linux
+          build "Linux" "amd64"
+          build "Linux" "arm64"
+          build "Linux" "arm"
+
+          echo "Calculating checksums..."
+          (cd dist && sha256sum * > checksums.txt)
+
+          echo "Artifacts:"
+          ls -lah dist
+
+      - name: Upload assets to release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            dist/*.tar.gz
+            dist/checksums.txt
+          fail_on_unmatched_files: true
+          append_body: true
+          tag_name: ${{ github.event.release.tag_name }}

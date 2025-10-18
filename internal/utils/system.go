@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
+
 	"time"
 )
 
@@ -218,17 +218,10 @@ func acquireFileLock(lockFile string, write bool) (*os.File, error) {
 		return nil, err
 	}
 
-	// Determine lock type
-	lockType := syscall.LOCK_SH // Shared lock for read
-	if write {
-		lockType = syscall.LOCK_EX // Exclusive lock for write
-	}
-
-	// Try to acquire lock with timeout
-	lockType |= syscall.LOCK_NB // Non-blocking
-
+	// Try to acquire lock non-blocking with timeout/retries.
+	// On platforms where platformLockFile is a no-op, this will succeed immediately.
 	for i := 0; i < 50; i++ { // Try for up to 5 seconds
-		if err := syscall.Flock(int(lockFd.Fd()), lockType); err == nil {
+		if err := platformLockFile(lockFd, write, true); err == nil {
 			return lockFd, nil
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -241,7 +234,7 @@ func acquireFileLock(lockFile string, write bool) (*os.File, error) {
 // releaseFileLock releases a file lock
 func releaseFileLock(lockFd *os.File) {
 	if lockFd != nil {
-		syscall.Flock(int(lockFd.Fd()), syscall.LOCK_UN)
+		_ = platformUnlockFile(lockFd)
 		lockFd.Close()
 	}
 }
