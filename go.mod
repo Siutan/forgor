@@ -8,6 +8,7 @@ require (
 	github.com/go-resty/resty/v2 v2.16.5
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.18.2
+	golang.org/x/term v0.36.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

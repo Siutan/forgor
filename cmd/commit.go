@@ -14,6 +14,7 @@ import (
 	"forgor/internal/utils"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var (
@@ -58,6 +59,11 @@ func runCommitGeneration() error {
 	// Check if we're in a git repository
 	if !isGitRepository() {
 		return fmt.Errorf("not a git repository")
+	}
+	
+	branchName, err := getBranchName()
+	if err != nil {
+		return fmt.Errorf("failed to get branch name: %w", err)
 	}
 
 	// Determine what changes to analyze
@@ -139,10 +145,11 @@ func runCommitGeneration() error {
 		changes = unstagedChanges
 	}
 
-	prompt := buildCommitPrompt(changes, useStaged, fileStats, gitStatus, untrackedFiles)
+	prompt := buildCommitPrompt(branchName, changes, useStaged, fileStats, gitStatus, untrackedFiles)
 
 	// Generate commit message
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	requestContext := llm.BuildContextFromSystem()
 
 	response, err := provider.GenerateCommand(ctx, &llm.Request{
@@ -151,7 +158,7 @@ func runCommitGeneration() error {
 		Options: llm.RequestOptions{
 			IncludeExplanation: commitVerbose,
 			MaxTokens:          300,
-			Temperature:        0.3,
+			Temperature:        0.2,
 		},
 	})
 
@@ -161,15 +168,44 @@ func runCommitGeneration() error {
 		return fmt.Errorf("failed to generate commit message: %w", err)
 	}
 
-	// debug: print raw response
-	fmt.Printf("Command response: %s\n Command explanation: %s\n", response.Command, response.Explanation)
+	if commitVerbose {
+		// Show a short snippet of the provider payload (single-line, truncated)
+		snippet := response.Command
+		if strings.TrimSpace(snippet) == "" {
+			snippet = response.Explanation
+		}
+		snippet = strings.TrimSpace(snippet)
+		if len([]rune(snippet)) > 200 {
+			r := []rune(snippet)
+			snippet = string(r[:200]) + "…"
+		}
+		oneLine := strings.ReplaceAll(snippet, "\n", " ")
+		fmt.Printf("%s Model payload snippet: %s\n", utils.Styled("•", utils.StyleSubtle), utils.Styled(oneLine, utils.StyleSubtle))
+	}
 
-	// Extract commit message from response
-	commitMessage := extractCommitMessage(response.Command, response.Explanation, commitVerbose)
-
-	// Validate commit message
-	if strings.TrimSpace(commitMessage) == "" {
-		return fmt.Errorf("failed to generate a valid commit message. Please try again or specify changes manually")
+	cm, err := parseCommitJSON(response.Command, response.Explanation)
+	var commitMessage string
+	if err != nil {
+		// Fallback to legacy free-form parsing for robustness
+		commitMessage = extractCommitMessage(response.Command, response.Explanation, commitVerbose)
+		if strings.TrimSpace(commitMessage) == "" {
+			snippet := response.Command
+			if strings.TrimSpace(snippet) == "" {
+				snippet = response.Explanation
+			}
+			snippet = strings.TrimSpace(snippet)
+			if len([]rune(snippet)) > 200 {
+				r := []rune(snippet)
+				snippet = string(r[:200]) + "…"
+			}
+			oneLine := strings.ReplaceAll(snippet, "\n", " ")
+			return fmt.Errorf("failed to parse model JSON and no valid free-form commit message was found. payload: %q. err: %w", oneLine, err)
+		}
+	} else {
+		commitMessage = formatCommit(*cm)
+		if strings.TrimSpace(commitMessage) == "" {
+			return fmt.Errorf("empty commit message after parsing")
+		}
 	}
 
 	// Display the generated commit message
@@ -199,13 +235,26 @@ func runCommitGeneration() error {
 	for {
 		fmt.Printf("%s [e]dit / [a]pply / [d]elete: ", utils.Styled("→", utils.StyleInfo))
 
-		reader := bufio.NewReader(os.Stdin)
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("failed to read input: %w", err)
+		// Read a single key without requiring Enter (raw mode), with graceful fallback
+		var choice string
+		if oldState, err := term.MakeRaw(int(os.Stdin.Fd())); err == nil {
+			b := make([]byte, 1)
+			_, rerr := os.Stdin.Read(b)
+			_ = term.Restore(int(os.Stdin.Fd()), oldState)
+			if rerr != nil {
+				return fmt.Errorf("failed to read input: %w", rerr)
+			}
+			choice = strings.ToLower(string(b[0]))
+			// Echo the key and newline for UX in raw mode
+			fmt.Printf("%s\n", choice)
+		} else {
+			reader := bufio.NewReader(os.Stdin)
+			input, rerr := reader.ReadString('\n')
+			if rerr != nil {
+				return fmt.Errorf("failed to read input: %w", rerr)
+			}
+			choice = strings.ToLower(strings.TrimSpace(input))
 		}
-
-		choice := strings.ToLower(strings.TrimSpace(input))
 
 		switch choice {
 		case "e", "edit":
@@ -224,8 +273,31 @@ func runCommitGeneration() error {
 				err = applyCommit(commitMessage)
 			} else {
 				fmt.Printf("%s No files are staged. Would you like to stage all changes? [y/n]: ", utils.Styled("?", utils.StyleWarning))
-				stageInput, _ := reader.ReadString('\n')
-				if strings.ToLower(strings.TrimSpace(stageInput)) == "y" {
+
+				// Single-key read for y/n confirmation
+				stageChoice := ""
+				if oldState, err := term.MakeRaw(int(os.Stdin.Fd())); err == nil {
+					b := make([]byte, 1)
+					n, rerr := os.Stdin.Read(b)
+					_ = term.Restore(int(os.Stdin.Fd()), oldState)
+					if rerr != nil {
+						return fmt.Errorf("failed to read input: %w", rerr)
+					}
+					if n == 0 {
+						return fmt.Errorf("failed to read input: no data received")
+					}
+					stageChoice = strings.ToLower(string(b[0]))
+					fmt.Printf("%s\n", stageChoice)
+				} else {
+					r := bufio.NewReader(os.Stdin)
+					s, rerr := r.ReadString('\n')
+					if rerr != nil {
+						return fmt.Errorf("failed to read input: %w", rerr)
+					}
+					stageChoice = strings.ToLower(strings.TrimSpace(s))
+				}
+
+				if stageChoice == "y" {
 					if err := stageAllChanges(); err != nil {
 						return fmt.Errorf("failed to stage changes: %w", err)
 					}
@@ -255,6 +327,15 @@ func runCommitGeneration() error {
 func isGitRepository() bool {
 	cmd := exec.Command("git", "rev-parse", "--git-dir")
 	return cmd.Run() == nil
+}
+
+func getBranchName() (string, error) {
+	cmd := exec.Command("git", "branch", "--show-current")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 func getGitStagedChanges() (string, error) {
@@ -404,74 +485,70 @@ func buildPseudoDiffForUntracked(untrackedFilesContent string) string {
 }
 
 // Replace your buildCommitPrompt with this version
-func buildCommitPrompt(changes string, isStaged bool, fileStats string, gitStatus string, untrackedFiles string) string {
+func buildCommitPrompt(branchName string, changes string, isStaged bool, fileStats string, gitStatus string, untrackedFiles string) string {
 	changeType := "unstaged changes"
 	if isStaged {
 		changeType = "staged changes"
 	}
 
-	var promptParts []string
+	var b strings.Builder
+	b.WriteString(
+`You are generating a Conventional Commit message for the following git ` + changeType + `.
 
-	// Build pseudo diff for untracked and place it before main diff
-	pseudoUntracked := ""
-	if strings.TrimSpace(untrackedFiles) != "" {
-		pseudoUntracked = buildPseudoDiffForUntracked(untrackedFiles)
-	}
+Return JSON ONLY, no markdown, no prose. Schema:
 
-	promptParts = append(promptParts, fmt.Sprintf(
-		`You are generating a Conventional Commit message for the following git %s.
+{
+  "subject": "string, REQUIRED. Must be '<type>(<scope>): <imperative subject>' or '<type>: <imperative subject>' and <= 72 chars",
+  "body": "string, OPTIONAL, a single paragraph with details (no code blocks)",
+  "footer": "string, OPTIONAL, only if needed. Allowed prefixes: 'BREAKING CHANGE:', 'BREAKING-CHANGE:'"
+}
 
-Strict output format (return ONLY the commit message, no extra text, no markdown):
-- Subject: <type>(<scope>): <imperative subject under 72 chars>
-- Optional body: add more detail if non-trivial; separate by a single blank line
-- Optional footer: BREAKING CHANGE: <details> and/or references (e.g., Closes #123)
-
-Conventional Commit types:
+Conventional Commit types allowed:
 feat, fix, docs, style, refactor, test, chore, perf, ci, build, revert
 
 Rules:
-- Use imperative mood: "add", "fix", "refactor", not "added"/"fixes"/"refactored"
-- Prefer a specific <scope> based on the main area changed (package/module/feature); omit scope if unclear
-- Keep the subject concise, concrete, and user-facing when applicable
-- If multiple files change, choose the dominant scope (by impact), not just file count
-- Call out BREAKING CHANGE in footer if it changes public API, behavior, or contracts
-- Avoid mentioning internal ref names, usernames, or secrets
-- Deprioritize non-functional changes unless significant (e.g., docs content rewrite > typo)
-- Avoid noise from lock files, formatting-only changes, regenerated code, or transient diffs
-- Do not include code snippets in the body; summarize behavior/intent
-- If the changes are trivial (e.g., whitespace-only), use a minimal appropriate type and subject
-- If untracked files exist, treat them as new additions and include them in commit intent
+- Use imperative mood in subject.
+- Prefer a specific <scope> (module/package/feature) if clear; otherwise omit scope.
+- Body: summarise intent and impact. No code snippets. Use short dot points in order of importance.
+- Footer: include issue reference if applicable, usually in branch name.
+- If untracked files exist, treat them as new additions and include in intent.
+- Ignore binary content and noise (lockfiles, large generated assets).
 
-Prioritization heuristics:
-- Prioritize application and library code over config/docs: .ts/.tsx/.js/.jsx/.go/.py/.rb/.java/.kt/.swift/.rs/.c/.cpp/.cs
-- Deprioritize purely non-code files: .md .txt .json .yaml/.yml .toml .lock .svg .png .jpg
-- Prioritize changes in untracked files
-- Treat test-only changes as type "test" unless they imply a bug fix in code
-- For dependency bumps (package.json, go.mod, etc.), use "build" or "chore" depending on impact
-- For performance-related changes with measurable improvements, use "perf"
+Choose at most one type and at most one scope.
+`)
 
-Data provided below may include diff, file stats, git status, and untracked content.
-Ignore irrelevant sections, binary data, or malformed snippets. Extract intent and summarize changes.
-`, changeType))
+	b.WriteString("\nBranch Name:\n")
+	b.WriteString(branchName)
+	b.WriteString("\n")
 
 	if fileStats != "" {
-		promptParts = append(promptParts, fmt.Sprintf("File Statistics:\n%s\n", strings.TrimSpace(fileStats)))
+		b.WriteString("\nFile Statistics:\n")
+		b.WriteString(strings.TrimSpace(fileStats))
+		b.WriteString("\n")
 	}
 	if gitStatus != "" {
-		promptParts = append(promptParts, fmt.Sprintf("Git Status:\n%s\n", strings.TrimSpace(gitStatus)))
+		b.WriteString("\nGit Status:\n")
+		b.WriteString(strings.TrimSpace(gitStatus))
+		b.WriteString("\n")
 	}
 
-	// Put untracked pseudo-diff BEFORE the main diff
-	if pseudoUntracked != "" {
-		promptParts = append(promptParts, fmt.Sprintf("Diff (Untracked new files):\n%s\n", pseudoUntracked))
+	// Put untracked pseudo-diff before main diff
+	if s := strings.TrimSpace(untrackedFiles); s != "" {
+		pseudo := buildPseudoDiffForUntracked(s)
+		if pseudo != "" {
+			b.WriteString("\nDiff (Untracked new files):\n")
+			b.WriteString(pseudo)
+			b.WriteString("\n")
+		}
 	}
 	if changes != "" {
-		promptParts = append(promptParts, fmt.Sprintf("Diff:\n%s\n", strings.TrimSpace(changes)))
+		b.WriteString("\nDiff:\n")
+		b.WriteString(strings.TrimSpace(changes))
+		b.WriteString("\n")
 	}
 
-	promptParts = append(promptParts, "Return ONLY the commit message. No explanations, no extra lines before or after, no code blocks.")
-
-	return strings.Join(promptParts, "\n")
+	b.WriteString("\nReturn JSON only. Begin with '{' and end with '}'. No code fences, no extra text.")
+	return b.String()
 }
 
 // isConventionalSubjectLine checks if the first line matches Conventional Commits: <type>(<scope>): <subject> or <type>: <subject>
@@ -496,7 +573,7 @@ func isConventionalSubjectLine(line string) bool {
 
 // normalizeCommitMessage trims wrappers and ensures at most subject + one body + optional footer.
 func normalizeCommitMessage(raw string) string {
-	if raw == "" {
+	if strings.TrimSpace(raw) == "" {
 		return ""
 	}
 
@@ -506,55 +583,78 @@ func normalizeCommitMessage(raw string) string {
 	s = strings.Trim(s, "'\"")
 	s = strings.TrimSpace(s)
 
-	// Strip code fences if present
-	if strings.HasPrefix(s, "```") && strings.HasSuffix(s, "```") {
-		s = strings.TrimPrefix(s, "```")
-		s = strings.TrimSuffix(s, "```")
-		s = strings.TrimSpace(s)
+	// Strip code fences if present (handle opening and closing fences)
+	if strings.HasPrefix(s, "```") {
+		if last := strings.LastIndex(s, "```"); last > 3 {
+			s = strings.TrimSpace(s[3:last])
+		}
 	}
 
-	// Remove leading labels
+	// Remove leading labels (case-sensitive forms used by models)
 	s = strings.TrimPrefix(s, "Commit message: ")
 	s = strings.TrimPrefix(s, "Message: ")
 	s = strings.TrimSpace(s)
 
-	// Remove any leading "Explanation:" blocks
+	// Remove any trailing "Explanation:" blocks (and anything after)
 	if idx := strings.Index(s, "Explanation:"); idx >= 0 {
 		s = strings.TrimSpace(s[:idx])
 	}
 
-	// Collapse excessive blank lines
+	// Collapse excessive blank lines and trim trailing spaces on each line
 	lines := strings.Split(s, "\n")
-	var cleaned []string
-	for _, l := range lines {
-		cleaned = append(cleaned, strings.TrimRight(l, " "))
+	for i := range lines {
+		lines[i] = strings.TrimRight(lines[i], " ")
 	}
-	s = strings.Join(cleaned, "\n")
-	s = strings.TrimSpace(s)
+
+	// Collapse consecutive blank lines to a single blank line
+	var collapsed []string
+	blank := false
+	for i := range lines {
+		if strings.TrimSpace(lines[i]) == "" {
+			if !blank {
+				collapsed = append(collapsed, "")
+				blank = true
+			}
+		} else {
+			collapsed = append(collapsed, lines[i])
+			blank = false
+		}
+	}
+	s = strings.TrimSpace(strings.Join(collapsed, "\n"))
 
 	// Split into paragraphs: subject, body, footer (optional)
 	paras := strings.Split(s, "\n\n")
-	if len(paras) == 0 {
+	if len(paras) == 0 || strings.TrimSpace(paras[0]) == "" {
 		return ""
 	}
 
 	subject := strings.TrimSpace(paras[0])
 	if !isConventionalSubjectLine(subject) {
-		// If the first line is part of a multi-line subject (some models break lines),
-		// join up to the first blank line and re-check.
-		joinedFirst := strings.ReplaceAll(paras[0], "\n", " ")
-		joinedFirst = strings.Join(strings.Fields(joinedFirst), " ")
-		if isConventionalSubjectLine(joinedFirst) {
-			subject = joinedFirst
+		// Try to join broken lines in the first paragraph into a single line and re-check
+		joined := strings.ReplaceAll(paras[0], "\n", " ")
+		joined = strings.Join(strings.Fields(joined), " ")
+		if isConventionalSubjectLine(joined) {
+			subject = joined
 		} else {
-			// Not a conventional subject; reject
-			return ""
+			// As a last attempt, take only the very first non-empty line
+			firstLine := subject
+			if idx := strings.Index(firstLine, "\n"); idx >= 0 {
+				firstLine = firstLine[:idx]
+			}
+			firstLine = strings.TrimSpace(firstLine)
+			if isConventionalSubjectLine(firstLine) {
+				subject = firstLine
+			} else {
+				// Not a conventional subject; reject
+				return ""
+			}
 		}
 	}
 
-	// Enforce 72-char cap on subject (soft trim)
-	if len(subject) > 72 {
-		subject = subject[:72]
+	// Enforce 72-char cap on subject using runes (soft trim)
+	rs := []rune(subject)
+	if len(rs) > 72 {
+		subject = string(rs[:72])
 	}
 
 	// Keep a single body block if present and not an explanation/code fence
@@ -566,15 +666,34 @@ func normalizeCommitMessage(raw string) string {
 		}
 	}
 
-	// Optional footer: allow lines containing BREAKING CHANGE or references like "Closes #123"
 	var footer string
 	if len(paras) > 2 {
-		f := strings.TrimSpace(paras[2])
-		if f != "" && (strings.HasPrefix(f, "BREAKING CHANGE:") ||
-			strings.HasPrefix(f, "Closes ") ||
-			strings.HasPrefix(f, "Refs ") ||
-			strings.HasPrefix(f, "Relates ")) {
-			footer = f
+		f := strings.TrimSpace(strings.Join(paras[2:], "\n\n"))
+		if f != "" {
+			fLines := strings.Split(f, "\n")
+			var footerLines []string
+			for i := range fLines {
+				l := strings.TrimSpace(fLines[i])
+				if l == "" {
+					continue
+				}
+				low := strings.ToLower(l)
+				if strings.HasPrefix(low, "breaking change:") || strings.HasPrefix(low, "breaking-change:") {
+					footerLines = append(footerLines, l)
+					continue
+				}
+				if strings.HasPrefix(low, "closes") || strings.HasPrefix(low, "closes:") {
+					footerLines = append(footerLines, l)
+					continue
+				}
+				if strings.Contains(low, "closes #") {
+					footerLines = append(footerLines, l)
+					continue
+				}
+			}
+			if len(footerLines) > 0 {
+				footer = strings.Join(footerLines, "\n")
+			}
 		}
 	}
 
@@ -588,6 +707,7 @@ func normalizeCommitMessage(raw string) string {
 	if footer != "" {
 		return subject + "\n\n" + footer
 	}
+
 	return subject
 }
 
@@ -717,7 +837,19 @@ func openEditorForCommit(initialMessage string) (string, error) {
 }
 
 func applyCommit(message string) error {
-	cmd := exec.Command("git", "commit", "-m", message)
+	tmpfile, err := os.CreateTemp("", "COMMIT_MSG_*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpfile.Name())
+
+	if _, err := tmpfile.WriteString(message); err != nil {
+		tmpfile.Close()
+		return err
+	}
+	tmpfile.Close()
+
+	cmd := exec.Command("git", "commit", "-F", tmpfile.Name())
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
