@@ -278,13 +278,22 @@ func runCommitGeneration() error {
 				stageChoice := ""
 				if oldState, err := term.MakeRaw(int(os.Stdin.Fd())); err == nil {
 					b := make([]byte, 1)
-					_, _ = os.Stdin.Read(b)
+					n, rerr := os.Stdin.Read(b)
 					_ = term.Restore(int(os.Stdin.Fd()), oldState)
+					if rerr != nil {
+						return fmt.Errorf("failed to read input: %w", rerr)
+					}
+					if n == 0 {
+						return fmt.Errorf("failed to read input: no data received")
+					}
 					stageChoice = strings.ToLower(string(b[0]))
 					fmt.Printf("%s\n", stageChoice)
 				} else {
 					r := bufio.NewReader(os.Stdin)
-					s, _ := r.ReadString('\n')
+					s, rerr := r.ReadString('\n')
+					if rerr != nil {
+						return fmt.Errorf("failed to read input: %w", rerr)
+					}
 					stageChoice = strings.ToLower(strings.TrimSpace(s))
 				}
 
