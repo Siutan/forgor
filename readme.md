@@ -42,6 +42,8 @@
 - 📖 **Explain Mode**: Get detailed explanations of what commands do
 - ⚡ **Shell Completion**: Tab completion for all major shells (bash, zsh, fish)
 - 🏃 **Force Run Mode**: Directly execute generated commands (use with caution)
+- 📝 **Git Commit Generation**: AI-powered conventional commit messages from staged, unstaged, and untracked changes
+</text>
 
 ---
 
@@ -416,6 +418,32 @@ forgor "find all txt files containing 'hello'"
 ff "show me how to make a new tmux session called dev"
 ```
 
+### Git Commit Message Generation
+
+```bash
+# Generate commit message for staged changes (also includes untracked files)
+forgor commit
+
+# Preview without committing
+forgor commit --dry-run
+
+# Automatically open editor after generation
+forgor commit --edit
+
+# Use specific LLM provider
+forgor commit --profile anthropic
+```
+
+The command analyzes:
+- Staged changes (from `git diff --cached`)
+- Unstaged changes (if no staged files)
+- Untracked files (always included for context)
+
+After generation, you can:
+- **[e]dit**: Open the message in your default editor (respects `$GIT_EDITOR` or `$EDITOR`)
+- **[a]pply**: Commit with the generated message (will prompt to stage if needed)
+- **[d]elete**: Cancel without committing
+
 ### History-Aware Commands
 
 ```bash
@@ -492,6 +520,24 @@ forgor "undo the last commit but keep changes"
 forgor "show git log in one line format"
 # Output: git log --oneline
 ```
+
+### Git Commit Message Generation
+
+```bash
+# Stage your changes first
+git add .
+
+# Generate a conventional commit message
+forgor commit
+# Output: Analyzes your staged changes and generates a message like:
+# "feat(auth): add user authentication middleware"
+
+# Or let forgor analyze unstaged changes
+forgor commit  # (when nothing is staged)
+# Output: Prompts to stage changes before committing
+```
+</text>
+
 
 ---
 
