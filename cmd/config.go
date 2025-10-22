@@ -6,9 +6,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"forgor/internal/cache"
 	"forgor/internal/config"
 	"forgor/internal/llm"
+	"forgor/internal/utils"
 
 	"github.com/spf13/cobra"
 )
@@ -37,8 +40,107 @@ var configInitCmd = &cobra.Command{
 			return
 		}
 		fmt.Println("✅ Default configuration created successfully!")
-		fmt.Println("📝 Edit ~/.config/forgor/config.yaml to customize your settings")
-		fmt.Println("🔑 Set your API keys in environment variables (e.g., OPENAI_API_KEY)")
+		fmt.Println("Edit ~/.config/forgor/config.yaml to customize your settings")
+		fmt.Println("Set your API keys in environment variables (e.g., OPENAI_API_KEY)")
+		
+		// Perform initial system scan
+		fmt.Println("\n🔍 Scanning system for tools (this may take a moment)...")
+		start := time.Now()
+		
+		tools, err := cache.ScanAndCacheTools()
+		duration := time.Since(start)
+		
+		if err != nil {
+			fmt.Printf("⚠️  Warning: Tool scan failed: %v\n", err)
+		} else {
+			fmt.Printf("✓ Scan completed in %v\n", duration)
+			
+			// Show detected tools
+			if !tools.IsEmpty() {
+				fmt.Println("\nDetected tools:")
+				if len(tools.PackageManagers) > 0 {
+					fmt.Printf("   • Package managers: %v\n", tools.PackageManagers)
+				}
+				if len(tools.Languages) > 0 {
+					langs := make([]string, 0, len(tools.Languages))
+					for _, l := range tools.Languages {
+						langs = append(langs, l.Name)
+					}
+					fmt.Printf("   • Languages: %v\n", langs)
+				}
+				if len(tools.ContainerTools) > 0 {
+					fmt.Printf("   • Container tools: %v\n", tools.ContainerTools)
+				}
+				if len(tools.CloudTools) > 0 {
+					fmt.Printf("   • Cloud tools: %v\n", tools.CloudTools)
+				}
+			}
+		}
+		
+		fmt.Println("\nInitialization complete!")
+		fmt.Println("\nTry: forgor list all files")
+	},
+}
+
+// configRefreshCmd represents the config refresh command
+var configRefreshCmd = &cobra.Command{
+	Use:   "refresh",
+	Short: "Refresh system tool detection cache",
+	Long: `Scans your system for available tools and updates the cache.
+	
+This command performs a comprehensive scan of your system to detect:
+- Package managers (brew, apt, npm, pip, etc.)
+- Programming languages (python, node, go, etc.)
+- Development tools (git, docker, kubectl, etc.)
+- Container and cloud tools
+
+The scan typically takes 1-3 seconds depending on your system.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println("🔍 Scanning system for tools...")
+		
+		start := time.Now()
+		
+		// Force immediate refresh
+		if err := utils.RefreshSystemContext(); err != nil {
+			fmt.Printf("Refresh failed: %v\n", err)
+			return
+		}
+		
+		duration := time.Since(start)
+		
+		fmt.Printf("Cache refreshed in %v\n", duration)
+		
+		// Show what was detected
+		tools := cache.LoadToolCacheOrEmpty(cache.ToolCacheMaxAge)
+		if !tools.IsEmpty() {
+			fmt.Printf("\nDetected %d tools:\n", tools.GetToolCount())
+			
+			if len(tools.PackageManagers) > 0 {
+				fmt.Printf("   • Package managers: %v\n", tools.PackageManagers)
+			}
+			if len(tools.Languages) > 0 {
+				langs := make([]string, 0, len(tools.Languages))
+				for _, l := range tools.Languages {
+					langs = append(langs, l.Name)
+				}
+				fmt.Printf("   • Languages: %v\n", langs)
+			}
+			if len(tools.DevelopmentTools) > 0 {
+				devTools := make([]string, 0, len(tools.DevelopmentTools))
+				for _, t := range tools.DevelopmentTools {
+					devTools = append(devTools, t.Name)
+				}
+				fmt.Printf("   • Dev tools: %v\n", devTools)
+			}
+			if len(tools.ContainerTools) > 0 {
+				fmt.Printf("   • Container tools: %v\n", tools.ContainerTools)
+			}
+			if len(tools.CloudTools) > 0 {
+				fmt.Printf("   • Cloud tools: %v\n", tools.CloudTools)
+			}
+		}
+		
+		fmt.Println("\nTool cache updated successfully!")
 	},
 }
 
@@ -423,7 +525,8 @@ func init() {
 	configCmd.AddCommand(configShowCmd)
 	configCmd.AddCommand(configSetDefaultCmd)
 	configCmd.AddCommand(configListProvidersCmd)
-	configCmd.AddCommand(configCompletionCmd)
+	configCmd.AddCommand(configToolsCmd)
+	configCmd.AddCommand(configRefreshCmd)
 }
 
 // min helper function
