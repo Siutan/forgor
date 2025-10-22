@@ -7,7 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
+	"forgor/internal/cache"
 	"forgor/internal/config"
 	"forgor/internal/history"
 	"forgor/internal/llm"
@@ -96,6 +98,7 @@ func setupCompletions() {
 
 func init() {
 	cobra.OnInitialize(initConfig)
+	cobra.OnInitialize(initCache)
 
 	// Global flags
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.config/forgor/config.yaml)")
@@ -119,6 +122,14 @@ func init() {
 	// Bind flags to viper
 	viper.BindPFlag("profile", rootCmd.Flags().Lookup("profile"))
 	viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
+}
+
+// initCache initializes the cache system
+func initCache() {
+	refreshInterval := 24 * time.Hour
+	enableBackgroundRefresh := true
+	
+	utils.InitializeCache(refreshInterval, enableBackgroundRefresh)
 }
 
 // runQuery processes a natural language query and generates a command
@@ -255,6 +266,13 @@ func runQuery(cmd *cobra.Command, query string) error {
 	}
 
 	historyStep.End()
+
+	// Schedule background refresh after this command completes so user action isn't blocked
+	defer func() {
+		if !localOnly {
+			cache.MaybeRefresh()
+		}
+	}()
 
 	if verbose {
 		fmt.Printf("\n%s\n", utils.Divider("SYSTEM CONTEXT", utils.StyleSubtle))

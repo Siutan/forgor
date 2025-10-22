@@ -280,7 +280,7 @@ func getDangerIcon(level llm.DangerLevel) string {
 	case llm.DangerLevelHigh:
 		return "🔴"
 	case llm.DangerLevelCritical:
-		return "💀"
+		return "‼️"
 	default:
 		return "❓"
 	}

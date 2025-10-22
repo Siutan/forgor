@@ -8,12 +8,11 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
-	"sync/atomic"
-
 	"time"
+
+	"forgor/internal/cache"
 )
 
 // SystemContext represents comprehensive system information
@@ -28,34 +27,14 @@ type SystemContext struct {
 	Environment      map[string]string `json:"environment"`
 }
 
-// ToolContext represents available tools and capabilities
-type ToolContext struct {
-	PackageManagers  []string          `json:"package_managers"`
-	Languages        []LanguageRuntime `json:"languages"`
-	DevelopmentTools []Tool            `json:"development_tools"`
-	SystemCommands   []string          `json:"system_commands"`
-	ContainerTools   []string          `json:"container_tools"`
-	CloudTools       []string          `json:"cloud_tools"`
-	DatabaseTools    []string          `json:"database_tools"`
-	NetworkTools     []string          `json:"network_tools"`
-	Available        map[string]bool   `json:"available"`
-	LastChecked      time.Time         `json:"last_checked"`
-}
+// ToolContext is an alias for cache.ToolContext for backward compatibility
+type ToolContext = cache.ToolContext
 
-// LanguageRuntime represents a programming language runtime
-type LanguageRuntime struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	Path    string `json:"path"`
-}
+// LanguageRuntime is an alias for cache.LanguageRuntime for backward compatibility
+type LanguageRuntime = cache.LanguageRuntime
 
-// Tool represents an available tool or application
-type Tool struct {
-	Name        string `json:"name"`
-	Version     string `json:"version"`
-	Path        string `json:"path"`
-	Description string `json:"description"`
-}
+// Tool is an alias for cache.Tool for backward compatibility
+type Tool = cache.Tool
 
 var (
 	systemContextCache *SystemContext
@@ -243,510 +222,113 @@ func releaseFileLock(lockFd *os.File) {
 func GetSystemContext() *SystemContext {
 	verbose := isVerboseMode()
 
-	// First check in-memory cache
-	contextCacheMutex.RLock()
-	if systemContextCache != nil && time.Since(cacheTimestamp) < cacheExpiration {
-		defer contextCacheMutex.RUnlock()
-		return systemContextCache
-	}
-	contextCacheMutex.RUnlock()
+	// TIER 1: Load bootstrap context (never blocks)
+	bootstrap := cache.LoadBootstrapCacheOrDefault()
 
-	// Try to load from persistent cache
-	if cached, err := loadPersistentCache(); err == nil && cached != nil {
-		age := time.Since(cacheTimestamp)
+	// TIER 2: Load tool context (never blocks, stale is OK)
+	tools := cache.LoadToolCacheOrEmpty(cache.ToolCacheMaxAge)
+
+	// Check if we should trigger background refresh
+	if tools.IsStale(cache.ToolCacheMaxAge) || tools.NeedsScan() {
 		if verbose {
-			fmt.Printf("📁 Loaded system context from cache (age: %v)\n", age)
-		}
-
-		// Check if we should trigger background refresh
-		if age > cacheExpiration && backgroundRefreshEnabled {
-			if atomic.CompareAndSwapInt32(&refreshInProgress, 0, 1) {
-				go func() {
-					defer atomic.StoreInt32(&refreshInProgress, 0)
-					if verbose {
-						fmt.Printf("🔄 Refreshing system context in background...\n")
-					}
-					refreshSystemContextInternal(false) // silent refresh
-				}()
+			if tools.NeedsScan() {
+				fmt.Fprintf(os.Stderr, "🔍 Tool cache never scanned, scheduling background scan...\n")
+			} else {
+				age := tools.GetAge()
+				fmt.Fprintf(os.Stderr, "⏰ Tool cache is stale (age: %v), scheduling background refresh...\n", age.Round(time.Hour))
 			}
 		}
-
-		return cached
+		// Trigger background refresh (non-blocking)
+		go cache.MaybeRefresh()
 	}
 
-	// No valid cache - must refresh synchronously
-	if verbose {
-		fmt.Printf("🔍 Building system context (no valid cache found)...\n")
-	}
-
-	return refreshSystemContextInternal(verbose)
-}
-
-// refreshSystemContextInternal performs the actual cache refresh
-func refreshSystemContextInternal(verbose bool) *SystemContext {
-	contextCacheMutex.Lock()
-	defer contextCacheMutex.Unlock()
-
-	// Double-check after acquiring write lock
-	if systemContextCache != nil && time.Since(cacheTimestamp) < cacheExpiration {
-		return systemContextCache
-	}
-
-	var timer *Timer
-	if verbose {
-		timer = NewTimer("System Context", verbose)
-		defer timer.PrintSummary()
-	}
-
-	// Get user information
-	var userStep *StepTimer
-	if verbose && timer != nil {
-		userStep = timer.StartStep("User Detection")
-	}
-
-	currentUser, err := user.Current()
-	var username, homeDir string
-	if err == nil {
-		username = currentUser.Username
-		homeDir = currentUser.HomeDir
-	} else {
-		username = os.Getenv("USER")
-		homeDir = os.Getenv("HOME")
-	}
-
-	if userStep != nil {
-		userStep.End()
-	}
-
-	// Get working directory
-	var dirStep *StepTimer
-	if verbose && timer != nil {
-		dirStep = timer.StartStep("Directory Detection")
-	}
-
+	// TIER 3: Get dynamic context (must be fresh)
 	wd, _ := os.Getwd()
+	env := getRelevantEnvironment()
 
-	if dirStep != nil {
-		dirStep.End()
-	}
-
-	// Detect tools
-	var toolsStep *StepTimer
-	if verbose && timer != nil {
-		toolsStep = timer.StartStep("Tool Detection")
-	}
-
-	tools := gatherToolContext()
-
-	if toolsStep != nil {
-		toolsStep.End()
-	}
-
-	// Build the context
-	var buildStep *StepTimer
-	if verbose && timer != nil {
-		buildStep = timer.StartStep("Context Assembly")
-	}
-
-	systemContextCache = &SystemContext{
-		OS:               runtime.GOOS,
-		Architecture:     runtime.GOARCH,
-		Shell:            GetCurrentShell(),
-		User:             username,
-		HomeDirectory:    homeDir,
+	// Combine all tiers
+	ctx := &SystemContext{
+		OS:               bootstrap.OS,
+		Shell:            bootstrap.Shell,
+		Architecture:     bootstrap.Architecture,
+		User:             bootstrap.User,
+		HomeDirectory:    bootstrap.HomeDir,
 		WorkingDirectory: wd,
-		Environment:      getRelevantEnvironment(),
-		Tools:            tools,
+		Tools:            *tools,
+		Environment:      env,
 	}
 
-	if buildStep != nil {
-		buildStep.End()
-	}
-
-	cacheTimestamp = time.Now()
-
-	// Save to persistent cache
-	var saveStep *StepTimer
-	if verbose && timer != nil {
-		saveStep = timer.StartStep("Cache Save")
-	}
-
-	if err := savePersistentCache(systemContextCache); err != nil {
-		if verbose {
-			fmt.Printf("⚠️  Failed to save cache: %v\n", err)
+	if verbose {
+		if !tools.IsEmpty() {
+			fmt.Fprintf(os.Stderr, "   📦 %s\n", tools.GetSummary())
 		}
-	} else if verbose {
-		fmt.Printf("💾 Saved system context to persistent cache\n")
 	}
 
-	if saveStep != nil {
-		saveStep.End()
-	}
-
-	return systemContextCache
+	return ctx
 }
+
+
 
 // RefreshSystemContext forces a refresh of the system context cache
-func RefreshSystemContext() *SystemContext {
-	if isVerboseMode() {
-		fmt.Printf("🔄 Forcing system context refresh...\n")
+func RefreshSystemContext() error {
+	verbose := isVerboseMode()
+
+	if verbose {
+		fmt.Fprintf(os.Stderr, "🔄 Refreshing system context...\n")
 	}
 
-	contextCacheMutex.Lock()
-	// Force cache expiry
-	cacheTimestamp = time.Time{}
-	systemContextCache = nil
-	contextCacheMutex.Unlock()
+	// Refresh bootstrap cache (fast)
+	if err := cache.RefreshBootstrapCache(); err != nil {
+		if verbose {
+			fmt.Fprintf(os.Stderr, "⚠️  Bootstrap refresh failed: %v\n", err)
+		}
+	} else if verbose {
+		fmt.Fprintf(os.Stderr, "✅ Bootstrap cache refreshed\n")
+	}
 
-	return refreshSystemContextInternal(isVerboseMode())
+	// Refresh tool cache (slow - this is the main operation)
+	if err := cache.ForceRefresh(); err != nil {
+		return fmt.Errorf("tool refresh failed: %w", err)
+	}
+
+	if verbose {
+		fmt.Fprintf(os.Stderr, "✅ System context refreshed\n")
+	}
+
+	return nil
 }
 
 // RefreshSystemContextBackground triggers a background refresh without blocking
 func RefreshSystemContextBackground() {
-	if atomic.CompareAndSwapInt32(&refreshInProgress, 0, 1) {
-		go func() {
-			defer atomic.StoreInt32(&refreshInProgress, 0)
-			if isVerboseMode() {
-				fmt.Printf("🔄 Starting background system context refresh...\n")
-			}
-			refreshSystemContextInternal(false)
-			if isVerboseMode() {
-				fmt.Printf("✅ Background system context refresh completed\n")
-			}
-		}()
-	} else if isVerboseMode() {
-		fmt.Printf("⏳ Background refresh already in progress\n")
-	}
+	cache.MaybeRefresh()
 }
 
-// IsRefreshInProgress returns true if a background refresh is currently running
+// IsRefreshInProgress checks if a background refresh is currently running
 func IsRefreshInProgress() bool {
-	return atomic.LoadInt32(&refreshInProgress) == 1
+	return cache.IsRefreshInProgress()
 }
 
 // SetBackgroundRefreshEnabled enables or disables background refreshing
 func SetBackgroundRefreshEnabled(enabled bool) {
-	backgroundRefreshEnabled = enabled
+	cache.GetGlobalScheduler().SetEnabled(enabled)
 }
 
-// GetCacheAge returns how old the current cache is
-func GetCacheAge() time.Duration {
-	// First check in-memory cache without holding lock during external calls
-	contextCacheMutex.RLock()
-	hasInMemoryCache := systemContextCache != nil && !cacheTimestamp.IsZero()
-	var memoryAge time.Duration
-	if hasInMemoryCache {
-		memoryAge = time.Since(cacheTimestamp)
+// GetCacheAge returns how old the caches are (bootstrap, tools)
+func GetCacheAge() (bootstrap time.Duration, tools time.Duration) {
+	info := cache.GetCacheInfo()
+	
+	if age, ok := info["bootstrap_age"].(time.Duration); ok {
+		bootstrap = age
 	}
-	contextCacheMutex.RUnlock()
-
-	if hasInMemoryCache {
-		return memoryAge
+	
+	if age, ok := info["tools_age"].(time.Duration); ok {
+		tools = age
 	}
-
-	// No in-memory cache, try to check persistent cache without loading it
-	if err := initPersistentCache(); err != nil {
-		return 0
-	}
-
-	// Check if cache file exists and get its age
-	if _, err := os.Stat(cacheFile); err == nil {
-		// Read the cache file to get timestamp without loading into memory
-		data, err := os.ReadFile(cacheFile)
-		if err != nil {
-			return 0
-		}
-
-		var cached CachedSystemContext
-		if err := json.Unmarshal(data, &cached); err != nil {
-			return 0
-		}
-
-		return time.Since(cached.Timestamp)
-	}
-
-	return 0
+	
+	return
 }
 
-// gatherToolContext detects available tools and capabilities
-func gatherToolContext() ToolContext {
-	tools := ToolContext{
-		Available:   make(map[string]bool),
-		LastChecked: time.Now(),
-	}
 
-	// Detect package managers
-	tools.PackageManagers = detectPackageManagers()
-
-	// Detect programming languages
-	tools.Languages = detectLanguageRuntimes()
-
-	// Detect development tools
-	tools.DevelopmentTools = detectDevelopmentTools()
-
-	// Detect system commands
-	tools.SystemCommands = detectSystemCommands()
-
-	// Detect container tools
-	tools.ContainerTools = detectContainerTools()
-
-	// Detect cloud tools
-	tools.CloudTools = detectCloudTools()
-
-	// Detect database tools
-	tools.DatabaseTools = detectDatabaseTools()
-
-	// Detect network tools
-	tools.NetworkTools = detectNetworkTools()
-
-	// Build availability map
-	buildAvailabilityMap(&tools)
-
-	return tools
-}
-
-// detectPackageManagers identifies available package managers
-func detectPackageManagers() []string {
-	managers := []string{}
-	candidates := []string{
-		"brew", "apt", "apt-get", "yum", "dnf", "pacman", "zypper",
-		"npm", "pip", "pip3", "gem", "cargo", "go", "composer",
-		"yarn", "bun", "pnpm", "bundle", "poetry", "pipenv",
-	}
-
-	for _, manager := range candidates {
-		if isCommandAvailable(manager) {
-			managers = append(managers, manager)
-		}
-	}
-
-	return managers
-}
-
-// detectLanguageRuntimes identifies available programming language runtimes
-func detectLanguageRuntimes() []LanguageRuntime {
-	runtimes := []LanguageRuntime{}
-
-	languages := map[string][]string{
-		"python":  {"python", "python3"},
-		"node":    {"node"},
-		"go":      {"go"},
-		"java":    {"java"},
-		"ruby":    {"ruby"},
-		"php":     {"php"},
-		"rust":    {"rustc"},
-		"kotlin":  {"kotlinc"},
-		"scala":   {"scala"},
-		"swift":   {"swift"},
-		"dart":    {"dart"},
-		"dotnet":  {"dotnet"},
-		"perl":    {"perl"},
-		"lua":     {"lua"},
-		"r":       {"R", "Rscript"},
-		"julia":   {"julia"},
-		"elixir":  {"elixir"},
-		"erlang":  {"erl"},
-		"haskell": {"ghc"},
-		"clojure": {"clojure"},
-		"nim":     {"nim"},
-		"zig":     {"zig"},
-	}
-
-	for lang, commands := range languages {
-		for _, cmd := range commands {
-			if path, err := exec.LookPath(cmd); err == nil {
-				version := getLanguageVersion(lang, cmd)
-				runtimes = append(runtimes, LanguageRuntime{
-					Name:    lang,
-					Version: version,
-					Path:    path,
-				})
-				break // Only add one runtime per language
-			}
-		}
-	}
-
-	return runtimes
-}
-
-// detectDevelopmentTools identifies available development tools
-func detectDevelopmentTools() []Tool {
-	tools := []Tool{}
-
-	devTools := map[string]string{
-		"git":       "Version control system",
-		"svn":       "Subversion version control",
-		"make":      "Build automation tool",
-		"cmake":     "Cross-platform build system",
-		"gradle":    "Build automation tool for Java",
-		"maven":     "Build automation tool for Java",
-		"ansible":   "Configuration management tool",
-		"terraform": "Infrastructure as code tool",
-		"vagrant":   "Development environment manager",
-		"tmux":      "Terminal multiplexer",
-		"screen":    "Terminal multiplexer",
-		"vim":       "Text editor",
-		"nvim":      "Neovim text editor",
-		"emacs":     "Text editor",
-		"code":      "Visual Studio Code",
-		"subl":      "Sublime Text",
-		"atom":      "Atom editor",
-	}
-
-	for tool, description := range devTools {
-		if path, err := exec.LookPath(tool); err == nil {
-			version := getToolVersion(tool)
-			tools = append(tools, Tool{
-				Name:        tool,
-				Version:     version,
-				Path:        path,
-				Description: description,
-			})
-		}
-	}
-
-	return tools
-}
-
-// detectSystemCommands identifies common system commands
-func detectSystemCommands() []string {
-	commands := []string{}
-	// checking for our own tool because we might add recursive tools in the future
-	candidates := []string{
-		"ls", "cd", "pwd", "mkdir", "rmdir", "rm", "cp", "mv", "ln",
-		"find", "grep", "awk", "sed", "sort", "uniq", "head", "tail",
-		"cat", "less", "more", "file", "which", "whereis", "locate",
-		"ps", "top", "htop", "kill", "killall", "jobs", "bg", "fg",
-		"df", "du", "mount", "umount", "lsblk", "fdisk",
-		"tar", "gzip", "gunzip", "zip", "unzip", "7z",
-		"chmod", "chown", "chgrp", "umask", "id", "whoami", "groups",
-		"date", "cal", "uptime", "uname", "hostname", "who", "w",
-		"history", "alias", "unalias", "export", "env", "printenv",
-		"echo", "printf", "read", "test", "true", "false",
-		"ssh", "scp", "rsync", "curl", "wget", "ping", "traceroute",
-		"netstat", "ss", "lsof", "iptables", "firewall-cmd", "forgor",
-	}
-
-	for _, cmd := range candidates {
-		if isCommandAvailable(cmd) {
-			commands = append(commands, cmd)
-		}
-	}
-
-	return commands
-}
-
-// detectContainerTools identifies container and orchestration tools
-func detectContainerTools() []string {
-	tools := []string{}
-	candidates := []string{
-		"docker", "podman", "buildah", "skopeo",
-		"kubectl", "helm", "minikube", "kind", "k3s",
-		"docker-compose", "docker-machine",
-		"containerd", "cri-o", "runc",
-	}
-
-	for _, tool := range candidates {
-		if isCommandAvailable(tool) {
-			tools = append(tools, tool)
-		}
-	}
-
-	return tools
-}
-
-// detectCloudTools identifies cloud platform tools
-func detectCloudTools() []string {
-	tools := []string{}
-	candidates := []string{
-		"aws", "az", "gcloud", "gsutil",
-		"doctl", "linode-cli", "vultr-cli",
-		"heroku", "cf", "oc",
-		"sam", "serverless", "pulumi",
-	}
-
-	for _, tool := range candidates {
-		if isCommandAvailable(tool) {
-			tools = append(tools, tool)
-		}
-	}
-
-	return tools
-}
-
-// detectDatabaseTools identifies database tools and clients
-func detectDatabaseTools() []string {
-	tools := []string{}
-	candidates := []string{
-		"mysql", "mariadb", "psql", "sqlite3",
-		"mongo", "mongosh", "redis-cli",
-		"influx", "cqlsh", "snowsql",
-		"sqlplus", "isql", "bcp",
-	}
-
-	for _, tool := range candidates {
-		if isCommandAvailable(tool) {
-			tools = append(tools, tool)
-		}
-	}
-
-	return tools
-}
-
-// detectNetworkTools identifies network utilities
-func detectNetworkTools() []string {
-	tools := []string{}
-	candidates := []string{
-		"curl", "wget", "httpie", "http",
-		"nc", "netcat", "nmap", "tcpdump",
-		"wireshark", "tshark", "dig", "nslookup",
-		"telnet", "ssh", "scp", "rsync",
-		"iperf", "iperf3", "mtr", "traceroute",
-	}
-
-	for _, tool := range candidates {
-		if isCommandAvailable(tool) {
-			tools = append(tools, tool)
-		}
-	}
-
-	return tools
-}
-
-// buildAvailabilityMap creates a map of all available tools
-func buildAvailabilityMap(tools *ToolContext) {
-	// Add all detected tools to availability map
-	for _, pm := range tools.PackageManagers {
-		tools.Available[pm] = true
-	}
-	for _, lang := range tools.Languages {
-		tools.Available[lang.Name] = true
-	}
-	for _, tool := range tools.DevelopmentTools {
-		tools.Available[tool.Name] = true
-	}
-	for _, cmd := range tools.SystemCommands {
-		tools.Available[cmd] = true
-	}
-	for _, tool := range tools.ContainerTools {
-		tools.Available[tool] = true
-	}
-	for _, tool := range tools.CloudTools {
-		tools.Available[tool] = true
-	}
-	for _, tool := range tools.DatabaseTools {
-		tools.Available[tool] = true
-	}
-	for _, tool := range tools.NetworkTools {
-		tools.Available[tool] = true
-	}
-}
-
-// isCommandAvailable checks if a command is available in PATH
-func isCommandAvailable(command string) bool {
-	_, err := exec.LookPath(command)
-	return err == nil
-}
 
 // getLanguageVersion attempts to get the version of a language runtime with timeout
 func getLanguageVersion(language, command string) string {
@@ -882,10 +464,10 @@ func GetToolContextSummary() string {
 }
 
 // IsToolAvailable checks if a specific tool is available
+// IsToolAvailable checks if a tool is available in the context
 func IsToolAvailable(tool string) bool {
-	context := GetSystemContext()
-	available, exists := context.Tools.Available[tool]
-	return exists && available
+	tools := cache.LoadToolCacheOrEmpty(cache.ToolCacheMaxAge)
+	return tools.IsToolAvailable(tool)
 }
 
 // isVerboseMode checks if verbose mode is enabled from environment or context
@@ -895,56 +477,45 @@ func isVerboseMode() bool {
 }
 
 // GetCacheInfo returns information about the persistent cache
-func GetCacheInfo() CacheInfo {
-	if err := initPersistentCache(); err != nil {
-		return CacheInfo{}
-	}
-
-	info := CacheInfo{
-		CacheDir: cacheDir,
-		FilePath: cacheFile,
-		LockFile: lockFile,
-	}
-
-	if stat, err := os.Stat(cacheFile); err == nil {
-		info.FileExists = true
-		info.FileSize = stat.Size()
-		info.FileModTime = stat.ModTime()
-	}
-
+func GetCacheInfo() map[string]interface{} {
+	info := cache.GetCacheInfo()
+	
+	// Add scheduler info
+	scheduler := cache.GetGlobalScheduler()
+	info["refresh_in_progress"] = scheduler.IsRefreshInProgress()
+	info["refresh_status"] = scheduler.GetRefreshStatus()
+	info["refresh_interval"] = scheduler.GetInterval().String()
+	info["needs_refresh"] = scheduler.NeedsRefresh()
+	
 	return info
 }
 
 // ClearPersistentCache removes the persistent cache file
 func ClearPersistentCache() error {
-	if err := initPersistentCache(); err != nil {
-		return fmt.Errorf("failed to initialize cache: %w", err)
+	return cache.ClearCache()
+}
+
+// InitializeCache initializes the cache system with configuration
+func InitializeCache(refreshInterval time.Duration, enableBackgroundRefresh bool) {
+	cache.InitGlobalScheduler(refreshInterval)
+	
+	if !enableBackgroundRefresh {
+		cache.GetGlobalScheduler().SetEnabled(false)
 	}
-
-	// Acquire write lock to ensure safe deletion
-	lockFd, err := acquireFileLock(lockFile, true)
-	if err != nil {
-		return fmt.Errorf("failed to acquire lock: %w", err)
-	}
-	defer releaseFileLock(lockFd)
-
-	// Clear in-memory cache
-	contextCacheMutex.Lock()
-	systemContextCache = nil
-	cacheTimestamp = time.Time{}
-	contextCacheMutex.Unlock()
-
-	// Remove cache file if it exists
-	if _, err := os.Stat(cacheFile); err == nil {
-		if err := os.Remove(cacheFile); err != nil {
-			return fmt.Errorf("failed to remove cache file: %w", err)
+	
+	// Check if bootstrap cache exists, if not create it
+	if !cache.IsBootstrapCacheValid() {
+		bootstrap := cache.BuildBootstrapContext()
+		if err := cache.SaveBootstrapCache(bootstrap); err != nil && isVerboseMode() {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to create bootstrap cache: %v\n", err)
 		}
 	}
-
-	// Remove temp files if they exist
-	if _, err := os.Stat(cacheFile + ".tmp"); err == nil {
-		os.Remove(cacheFile + ".tmp")
+	
+	// Check if tool cache exists, if not schedule background scan
+	if !cache.IsToolCacheValid() {
+		if isVerboseMode() {
+			fmt.Fprintf(os.Stderr, "Tool cache not found, scheduling initial scan...\n")
+		}
+		go cache.MaybeRefresh()
 	}
-
-	return nil
 }

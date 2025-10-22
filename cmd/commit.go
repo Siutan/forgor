@@ -157,7 +157,7 @@ func runCommitGeneration() error {
 		Context: requestContext,
 		Options: llm.RequestOptions{
 			IncludeExplanation: commitVerbose,
-			MaxTokens:          300,
+			MaxTokens:          1000,
 			Temperature:        0.2,
 		},
 	})

@@ -35,7 +35,7 @@ func runUpdate() error {
 	// Compare versions
 	currentVersion := Version
 	if latestRelease.TagName == currentVersion {
-		fmt.Printf("✅ You are already using the latest version of forgor: %s\n", utils.Styled(currentVersion, utils.StyleSuccess))
+		fmt.Printf("You are already using the latest version of forgor: %s\n", utils.Styled(currentVersion, utils.StyleSuccess))
 		return nil
 	}
 
@@ -72,12 +72,12 @@ func runUpdate() error {
 
 	response = strings.TrimSpace(strings.ToLower(response))
 	if response != "" && response != "y" && response != "yes" {
-		fmt.Printf("❌ Update cancelled\n")
+		fmt.Printf("Update cancelled\n")
 		return nil
 	}
 
 	// 2. Download the binary from assetURL into a temp directory.
-	fmt.Printf("⬇️  Downloading %s...\n", utils.Styled(assetName, utils.StyleHighlight))
+	fmt.Printf("Downloading %s...\n", utils.Styled(assetName, utils.StyleHighlight))
 	downloadedArchivePath, err := utils.DownloadUpdate(assetURL)
 	if err != nil {
 		return fmt.Errorf("failed to download update: %w", err)
@@ -87,7 +87,7 @@ func runUpdate() error {
 	defer os.RemoveAll(tempDir)
 
 	// 3. Unzip/untar if necessary.
-	fmt.Printf("📦 Extracting archive...\n")
+	fmt.Printf("Extracting archive...\n")
 	err = utils.ExtractTarGz(downloadedArchivePath, tempDir)
 	if err != nil {
 		return fmt.Errorf("failed to extract update: %w", err)
@@ -100,13 +100,13 @@ func runUpdate() error {
 	}
 
 	newExecPath := filepath.Join(tempDir, "forgor")
-	fmt.Printf("🚀 Replacing current version at %s...\n", utils.Styled(currentExec, utils.StyleSubtle))
+	fmt.Printf("Replacing current version at %s...\n", utils.Styled(currentExec, utils.StyleSubtle))
 	err = os.Rename(newExecPath, currentExec)
 	if err != nil {
 		return fmt.Errorf("failed to replace executable (you may need to run with sudo or as an administrator): %w", err)
 	}
 
-	fmt.Printf("✅ Forgor has been successfully updated to version %s!\n", utils.Styled(latestRelease.TagName, utils.StyleSuccess))
+	fmt.Printf("Forgor has been successfully updated to version %s!\n", utils.Styled(latestRelease.TagName, utils.StyleSuccess))
 	return nil
 }
 

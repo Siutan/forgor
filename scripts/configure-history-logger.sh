@@ -125,9 +125,9 @@ inject_snippet() {
 
   if ! grep -q "$LOG_MARKER" "$rc_file" 2>/dev/null; then
     echo -e "\n# Added by shell-logger\nsource \"$snippet_file\"" >> "$rc_file"
-    echo "✅ Patched $rc_file for $shell_name"
+    echo "Patched $rc_file for $shell_name"
   else
-    echo "⚠️ $rc_file already contains logger hook"
+    echo "$rc_file already contains logger hook"
   fi
 }
 
@@ -144,7 +144,7 @@ detect_and_patch() {
       inject_snippet "fish" "$HOME/.config/fish/config.fish" "$SNIPPET_DIR/fish.fish"
       ;;
     *)
-      echo "❌ Unsupported shell: $shell"
+      echo "Unsupported shell: $shell"
       exit 1
       ;;
   esac
@@ -152,4 +152,4 @@ detect_and_patch() {
 
 detect_and_patch
 
-echo "\n🚀 Shell logger installed with sensitive arg redaction. Restart your shell to activate."
+echo "\nShell logger installed with sensitive arg redaction. Restart your shell to activate."

@@ -6,9 +6,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"forgor/internal/cache"
 	"forgor/internal/config"
 	"forgor/internal/llm"
+	"forgor/internal/utils"
 
 	"github.com/spf13/cobra"
 )
@@ -36,9 +39,108 @@ var configInitCmd = &cobra.Command{
 			fmt.Printf("Error creating config: %v\n", err)
 			return
 		}
-		fmt.Println("✅ Default configuration created successfully!")
-		fmt.Println("📝 Edit ~/.config/forgor/config.yaml to customize your settings")
-		fmt.Println("🔑 Set your API keys in environment variables (e.g., OPENAI_API_KEY)")
+		fmt.Println("Default configuration created successfully!")
+		fmt.Println("Edit ~/.config/forgor/config.yaml to customize your settings")
+		fmt.Println("Set your API keys in environment variables (e.g., OPENAI_API_KEY)")
+		
+		// Perform initial system scan
+		fmt.Println("\n🔍 Scanning system for tools (this may take a moment)...")
+		start := time.Now()
+		
+		tools, err := cache.ScanAndCacheTools()
+		duration := time.Since(start)
+		
+		if err != nil {
+			fmt.Printf("Warning: Tool scan failed: %v\n", err)
+		} else {
+			fmt.Printf("✓ Scan completed in %v\n", duration)
+			
+			// Show detected tools
+			if !tools.IsEmpty() {
+				fmt.Println("\nDetected tools:")
+				if len(tools.PackageManagers) > 0 {
+					fmt.Printf("   • Package managers: %v\n", tools.PackageManagers)
+				}
+				if len(tools.Languages) > 0 {
+					langs := make([]string, 0, len(tools.Languages))
+					for _, l := range tools.Languages {
+						langs = append(langs, l.Name)
+					}
+					fmt.Printf("   • Languages: %v\n", langs)
+				}
+				if len(tools.ContainerTools) > 0 {
+					fmt.Printf("   • Container tools: %v\n", tools.ContainerTools)
+				}
+				if len(tools.CloudTools) > 0 {
+					fmt.Printf("   • Cloud tools: %v\n", tools.CloudTools)
+				}
+			}
+		}
+		
+		fmt.Println("\nInitialization complete!")
+		fmt.Println("\nTry: forgor list all files")
+	},
+}
+
+// configRefreshCmd represents the config refresh command
+var configRefreshCmd = &cobra.Command{
+	Use:   "refresh",
+	Short: "Refresh system tool detection cache",
+	Long: `Scans your system for available tools and updates the cache.
+	
+This command performs a comprehensive scan of your system to detect:
+- Package managers (brew, apt, npm, pip, etc.)
+- Programming languages (python, node, go, etc.)
+- Development tools (git, docker, kubectl, etc.)
+- Container and cloud tools
+
+The scan typically takes 1-3 seconds depending on your system.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println("🔍 Scanning system for tools...")
+		
+		start := time.Now()
+		
+		// Force immediate refresh
+		if err := utils.RefreshSystemContext(); err != nil {
+			fmt.Printf("Refresh failed: %v\n", err)
+			return
+		}
+		
+		duration := time.Since(start)
+		
+		fmt.Printf("Cache refreshed in %v\n", duration)
+		
+		// Show what was detected
+		tools := cache.LoadToolCacheOrEmpty(cache.ToolCacheMaxAge)
+		if !tools.IsEmpty() {
+			fmt.Printf("\nDetected %d tools:\n", tools.GetToolCount())
+			
+			if len(tools.PackageManagers) > 0 {
+				fmt.Printf("   • Package managers: %v\n", tools.PackageManagers)
+			}
+			if len(tools.Languages) > 0 {
+				langs := make([]string, 0, len(tools.Languages))
+				for _, l := range tools.Languages {
+					langs = append(langs, l.Name)
+				}
+				fmt.Printf("   • Languages: %v\n", langs)
+			}
+			if len(tools.DevelopmentTools) > 0 {
+				devTools := make([]string, 0, len(tools.DevelopmentTools))
+				for _, t := range tools.DevelopmentTools {
+					devTools = append(devTools, t.Name)
+				}
+				fmt.Printf("   • Dev tools: %v\n", devTools)
+			}
+			if len(tools.ContainerTools) > 0 {
+				fmt.Printf("   • Container tools: %v\n", tools.ContainerTools)
+			}
+			if len(tools.CloudTools) > 0 {
+				fmt.Printf("   • Cloud tools: %v\n", tools.CloudTools)
+			}
+		}
+		
+		fmt.Println("\nTool cache updated successfully!")
 	},
 }
 
@@ -51,11 +153,11 @@ var configShowCmd = &cobra.Command{
 		cfg, err := config.Load()
 		if err != nil {
 			fmt.Printf("Error loading config: %v\n", err)
-			fmt.Println("💡 Run 'forgor config init' to create a default configuration")
+			fmt.Println("Run 'forgor config init' to create a default configuration")
 			return
 		}
 
-		fmt.Printf("📋 Current Configuration\n")
+		fmt.Printf("Current Configuration\n")
 		fmt.Printf("Default Profile: %s\n\n", cfg.DefaultProfile)
 
 		fmt.Printf("🔧 Profiles:\n")
@@ -81,10 +183,10 @@ var configShowCmd = &cobra.Command{
 			fmt.Printf("    Temperature: %.1f\n\n", profile.Temperature)
 		}
 
-		fmt.Printf("📚 History: Max %d commands from %v shells\n",
+		fmt.Printf("History: Max %d commands from %v shells\n",
 			cfg.History.MaxCommands, cfg.History.Shells)
-		fmt.Printf("🔒 Security: Redact sensitive data = %v\n", cfg.Security.RedactSensitive)
-		fmt.Printf("📤 Output: Format = %s\n", cfg.Output.Format)
+		fmt.Printf("Security: Redact sensitive data = %v\n", cfg.Security.RedactSensitive)
+		fmt.Printf("Output: Format = %s\n", cfg.Output.Format)
 	},
 }
 
@@ -110,7 +212,7 @@ Examples:
 
 		// Check if profile exists
 		if _, exists := cfg.Profiles[profileName]; !exists {
-			fmt.Printf("❌ Profile '%s' not found\n\n", profileName)
+			fmt.Printf("Profile '%s' not found\n\n", profileName)
 			fmt.Printf("Available profiles:\n")
 			for name := range cfg.Profiles {
 				fmt.Printf("  • %s\n", name)
@@ -121,7 +223,7 @@ Examples:
 		// Validate the profile before setting as default
 		factory := llm.NewFactory(cfg)
 		if err := factory.ValidateProvider(profileName); err != nil {
-			fmt.Printf("⚠️  Warning: Profile '%s' has validation issues: %v\n", profileName, err)
+			fmt.Printf("Warning: Profile '%s' has validation issues: %v\n", profileName, err)
 			fmt.Printf("Setting as default anyway, but you may need to fix the configuration.\n\n")
 		}
 
@@ -133,12 +235,12 @@ Examples:
 			return fmt.Errorf("failed to save config: %w", err)
 		}
 
-		fmt.Printf("✅ Default provider set to '%s'\n", profileName)
+		fmt.Printf("Default provider set to '%s'\n", profileName)
 
 		// Show provider info
 		if provider, err := factory.GetProvider(profileName); err == nil {
 			info := provider.GetProviderInfo()
-			fmt.Printf("🤖 Using %s with model %s\n", info.Name, info.Metadata["model"])
+			fmt.Printf("Using %s with model %s\n", info.Name, info.Metadata["model"])
 		}
 
 		return nil
@@ -160,7 +262,7 @@ var configListProvidersCmd = &cobra.Command{
 
 		factory := llm.NewFactory(cfg)
 
-		fmt.Printf("📋 Available Provider Profiles\n\n")
+		fmt.Printf("Available Provider Profiles\n\n")
 
 		for name, profile := range cfg.Profiles {
 			status := "✅"
@@ -187,7 +289,7 @@ var configListProvidersCmd = &cobra.Command{
 			fmt.Printf("\n")
 		}
 
-		fmt.Printf("💡 Use 'forgor config set-default <profile>' to change the default\n")
+		fmt.Printf("Use 'forgor config set-default <profile>' to change the default\n")
 	},
 }
 
@@ -228,7 +330,7 @@ Examples:
 			return fmt.Errorf("unsupported shell: %s. Supported shells: bash, zsh, fish", targetShell)
 		}
 
-		fmt.Printf("🚀 Setting up %s completion for forgor...\n\n", targetShell)
+		fmt.Printf("Setting up %s completion for forgor...\n\n", targetShell)
 
 		return setupShellCompletion(targetShell)
 	},
@@ -343,8 +445,8 @@ func setupFishCompletion(homeDir string) error {
 		return fmt.Errorf("failed to generate fish completion: %w", err)
 	}
 
-	fmt.Printf("✅ Fish completion installed to %s\n", completionFile)
-	fmt.Printf("🔄 Restart your fish shell or run: source %s\n", completionFile)
+	fmt.Printf("Fish completion installed to %s\n", completionFile)
+	fmt.Printf("Restart your fish shell or run: source %s\n", completionFile)
 
 	return nil
 }
@@ -352,14 +454,14 @@ func setupFishCompletion(homeDir string) error {
 func addCompletionToFile(configFile, completionLines, shell string) error {
 	// Check if completion is already set up
 	if isCompletionAlreadySetup(configFile) {
-		fmt.Printf("✅ forgor completion is already set up in %s\n", configFile)
+		fmt.Printf("forgor completion is already set up in %s\n", configFile)
 		return nil
 	}
 
 	// Create backup
 	backupFile := configFile + ".forgor-backup"
 	if err := copyFile(configFile, backupFile); err == nil {
-		fmt.Printf("📋 Created backup: %s\n", backupFile)
+		fmt.Printf("Created backup: %s\n", backupFile)
 	}
 
 	// Add completion lines
@@ -374,17 +476,17 @@ func addCompletionToFile(configFile, completionLines, shell string) error {
 		return fmt.Errorf("failed to write to %s: %w", configFile, err)
 	}
 
-	fmt.Printf("✅ Added forgor completion to %s\n", configFile)
-	fmt.Printf("🔄 Run 'source %s' or restart your %s shell to enable completion\n", configFile, shell)
+	fmt.Printf("Added forgor completion to %s\n", configFile)
+	fmt.Printf("Run 'source %s' or restart your %s shell to enable completion\n", configFile, shell)
 
 	// Try to source the file automatically
 	if shell == "bash" || shell == "zsh" {
-		fmt.Printf("🚀 Attempting to source the file automatically...\n")
+		fmt.Printf("Attempting to source the file automatically...\n")
 		cmd := exec.Command(shell, "-c", fmt.Sprintf("source %s", configFile))
 		if err := cmd.Run(); err == nil {
-			fmt.Printf("✨ Completion should now be active in your current session!\n")
+			fmt.Printf("Completion should now be active in your current session!\n")
 		} else {
-			fmt.Printf("⚠️  Could not auto-source. Please restart your shell or run: source %s\n", configFile)
+			fmt.Printf("Could not auto-source. Please restart your shell or run: source %s\n", configFile)
 		}
 	}
 
@@ -423,7 +525,8 @@ func init() {
 	configCmd.AddCommand(configShowCmd)
 	configCmd.AddCommand(configSetDefaultCmd)
 	configCmd.AddCommand(configListProvidersCmd)
-	configCmd.AddCommand(configCompletionCmd)
+	configCmd.AddCommand(configToolsCmd)
+	configCmd.AddCommand(configRefreshCmd)
 }
 
 // min helper function
