@@ -28,16 +28,16 @@ This command checks:
 Use this command to troubleshoot issues with forgor or to verify
 that your system is properly configured.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("🔍 Checking forgor health...")
+		fmt.Println("Checking forgor health...")
 
 		healthy := true
 
 		// Check configuration
 		cfg, err := config.Load()
 		if err != nil {
-			fmt.Println("❌ Configuration: ERROR")
+			fmt.Println("Configuration: ERROR")
 			fmt.Printf("   %v\n", err)
-			fmt.Println("   💡 Run 'forgor config init' to create a default configuration")
+			fmt.Println("   Run 'forgor config init' to create a default configuration")
 			healthy = false
 		} else {
 			fmt.Println("✓ Configuration: OK")
@@ -49,7 +49,7 @@ that your system is properly configured.`,
 		fmt.Println()
 		bootstrap, err := cache.LoadBootstrapCache()
 		if err != nil {
-			fmt.Println("❌ Bootstrap cache: MISSING")
+			fmt.Println("Bootstrap cache: MISSING")
 			fmt.Printf("   %v\n", err)
 			fmt.Println("   💡 Will be created automatically on next command")
 			healthy = false
@@ -68,10 +68,10 @@ that your system is properly configured.`,
 		fmt.Println()
 		tools, err := cache.LoadToolCache()
 		if err != nil {
-			fmt.Println("⚠️  Tool cache: MISSING")
+			fmt.Println("Tool cache: MISSING")
 			fmt.Printf("   %v\n", err)
-			fmt.Println("   💡 Run 'forgor config refresh' to scan for tools")
-			fmt.Println("   💡 Or just run any command - tools will be scanned in background")
+			fmt.Println("   Run 'forgor config refresh' to scan for tools")
+			fmt.Println("   Or just run any command - tools will be scanned in background")
 		} else {
 			age := time.Since(tools.LastScan)
 			status := "OK"
@@ -125,11 +125,11 @@ that your system is properly configured.`,
 		cacheDir := info["cache_dir"].(string)
 
 		if stat, err := os.Stat(cacheDir); os.IsNotExist(err) {
-			fmt.Println("⚠️  Cache directory: MISSING")
+			fmt.Println("Cache directory: MISSING")
 			fmt.Printf("   Path: %s\n", cacheDir)
-			fmt.Println("   💡 Will be created automatically on next command")
+			fmt.Println("   Will be created automatically on next command")
 		} else if err != nil {
-			fmt.Println("❌ Cache directory: ERROR")
+			fmt.Println("Cache directory: ERROR")
 			fmt.Printf("   Path: %s\n", cacheDir)
 			fmt.Printf("   Error: %v\n", err)
 			healthy = false
@@ -156,14 +156,14 @@ that your system is properly configured.`,
 		fmt.Println()
 		scheduler := cache.GetGlobalScheduler()
 		if scheduler.IsRefreshInProgress() {
-			fmt.Println("🔄 Background refresh: IN PROGRESS")
+			fmt.Println("Background refresh: IN PROGRESS")
 		} else {
 			fmt.Println("✓ Background refresh: IDLE")
 			if scheduler.IsEnabled() {
 				fmt.Printf("   Status: %s\n", scheduler.GetRefreshStatus())
 				fmt.Printf("   Interval: %v\n", scheduler.GetInterval())
 				if scheduler.NeedsRefresh() {
-					fmt.Println("   💡 Cache refresh recommended - run 'forgor config refresh'")
+					fmt.Println("   Cache refresh recommended - run 'forgor config refresh'")
 				}
 			} else {
 				fmt.Println("   Status: DISABLED")
@@ -189,10 +189,10 @@ that your system is properly configured.`,
 		fmt.Println()
 		fmt.Println("═══════════════════════════════════════")
 		if healthy {
-			fmt.Println("✅ All checks passed!")
+			fmt.Println("All checks passed!")
 			fmt.Println("\nForgor is properly configured and ready to use.")
 		} else {
-			fmt.Println("⚠️  Some issues detected")
+			fmt.Println("Some issues detected")
 			fmt.Println("\nSee recommendations above to fix issues.")
 			fmt.Println("\nCommon fixes:")
 			fmt.Println("  • forgor config init     - Create default configuration")

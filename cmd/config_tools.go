@@ -93,7 +93,7 @@ var configToolsRemoveCmd = &cobra.Command{
 
 		// Trigger background cache refresh to update tools list
 		if verbose {
-			fmt.Println("🔄 Triggering background cache refresh...")
+			fmt.Println("Triggering background cache refresh...")
 		}
 		utils.RefreshSystemContextBackground()
 
@@ -116,7 +116,7 @@ var configToolsClearCmd = &cobra.Command{
 
 		// Trigger background cache refresh to update tools list
 		if verbose {
-			fmt.Println("🔄 Triggering background cache refresh...")
+			fmt.Println("Triggering background cache refresh...")
 		}
 		utils.RefreshSystemContextBackground()
 
