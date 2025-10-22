@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.8.2](https://github.com/Siutan/forgor/compare/v0.8.1...v0.8.2) (2025-10-22)
+
+
+### Refactoring
+
+* **cache:** Improve system context caching strategy ([2b34537](https://github.com/Siutan/forgor/commit/2b34537f5b4ecd2632459793f729aafea33ac338))
+* **cache:** improve system info caching strategy ([19c6169](https://github.com/Siutan/forgor/commit/19c6169b002eb5982eed6fa871c314a27b216da5))
+* **config:** Improve output messages and remove redundant icons ([8fd6478](https://github.com/Siutan/forgor/commit/8fd6478a5a03b643728550923d268155d1260bbe))
+
 ## [0.8.1](https://github.com/Siutan/forgor/compare/v0.8.0...v0.8.1) (2025-10-18)
 
 
