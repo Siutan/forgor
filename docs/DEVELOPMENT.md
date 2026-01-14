@@ -88,7 +88,9 @@ git commit -m "feat: add awesome new feature"
 
 ```bash
 # Use the automated PR script
-make create-pr -b "feat/your-feature" -t "Add awesome new feature"
+make create-pr ARGS='-t "Add awesome new feature"'
+# or
+scripts/create-pr.sh -t "Add awesome new feature"
 ```
 
 **Option 2: Manual**
@@ -109,26 +111,25 @@ The project includes a comprehensive PR creation script that handles all quality
 
 ```bash
 # Basic usage
-scripts/create-pr.sh -b "feat/new-feature" -t "Add new feature"
+scripts/create-pr.sh -t "Add new feature"
 
 # With description
 scripts/create-pr.sh \
-  -b "fix/bug-123" \
   -t "Fix critical bug" \
   -d "This fixes the issue where the app crashes on startup"
 
 # Create draft PR
 scripts/create-pr.sh \
-  -b "wip/experimental" \
   -t "WIP: Experimental feature" \
   --draft
 
 # Skip tests (not recommended)
 scripts/create-pr.sh \
-  -b "docs/update" \
   -t "Update documentation" \
   --skip-tests
 ```
+
+If you omit `-t`, the script uses the latest commit subject. It uses the current branch unless `--branch` is provided.
 
 ### What the PR Script Does
 
@@ -141,30 +142,26 @@ scripts/create-pr.sh \
 ✅ **Code Quality**
 
 - **Auto-formats code** with `gofmt`
-- **Runs linting** with `go vet`
-- **Executes tests** with race detection
+- **Runs linting** with `go vet` and optional `golangci-lint`
+- **Executes tests** locally
 - **Builds project** to ensure compilation
-
-✅ **Version Management**
-
-- **Checks version bump** compared to main
-- **Prompts for version bump** if needed
-- **Supports all bump types** (patch/minor/major)
 
 ✅ **PR Creation**
 
 - **Pushes branch** to remote
 - **Creates GitHub PR** with proper template
-- **Opens in browser** (optional)
+- **Opens in browser** (optional via `--open`)
 
 ### PR Script Options
 
 | Option              | Description               | Example                     |
 | ------------------- | ------------------------- | --------------------------- |
-| `-b, --branch`      | Branch name (required)    | `-b "feat/new-feature"`     |
-| `-t, --title`       | PR title (required)       | `-t "Add new feature"`      |
+| `-b, --branch`      | Branch name (defaults to current) | `-b "feat/new-feature"` |
+| `--base`            | Base branch (default: main) | `--base "main"`            |
+| `-t, --title`       | PR title (defaults to last commit subject) | `-t "Add new feature"` |
 | `-d, --description` | PR description            | `-d "Detailed description"` |
 | `--draft`           | Create as draft PR        | `--draft`                   |
+| `--open`            | Open PR in browser        | `--open`                    |
 | `--no-auto-fix`     | Don't auto-fix formatting | `--no-auto-fix`             |
 | `--skip-tests`      | Skip running tests        | `--skip-tests`              |
 | `--force`           | Skip safety checks        | `--force`                   |
@@ -217,7 +214,6 @@ This runs:
 - Code formatting
 - Linting
 - Tests
-- Version validation
 
 ## 🧪 Testing
 
@@ -399,7 +395,7 @@ make help  # Show all available commands
 | `make test`          | Run tests              |
 | `make check-quality` | Run all quality checks |
 | `make pre-commit`    | Pre-commit validation  |
-| `make create-pr`     | Create PR with checks  |
+| `make create-pr`     | Create PR with checks (use `ARGS=` for options) |
 | `make version-info`  | Show version details   |
 
 ### Documentation

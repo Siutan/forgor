@@ -27,12 +27,16 @@ VERSION="📈"
 
 # Default values
 BRANCH=""
+BASE_BRANCH="main"
 TITLE=""
 DESCRIPTION=""
 DRAFT=false
 AUTO_FIX=true
 SKIP_TESTS=false
 FORCE=false
+OPEN_BROWSER=false
+CLEAN_WORKTREE=true
+FORMAT_CHANGED=false
 
 # Helper functions
 print_header() {
@@ -70,32 +74,33 @@ ${YELLOW}USAGE:${NC}
     ./scripts/create-pr.sh [OPTIONS]
 
 ${YELLOW}OPTIONS:${NC}
-    -b, --branch BRANCH        Target branch name (required)
-    -t, --title TITLE          PR title (required)
+    -b, --branch BRANCH        Branch name (defaults to current)
+    --base BRANCH              Base branch (default: main)
+    -t, --title TITLE          PR title (defaults to last commit subject)
     -d, --description DESC     PR description
     --draft                    Create as draft PR
-    --no-auto-fix             Don't automatically fix formatting issues
-    --skip-tests              Skip running tests (not recommended)
-    --force                   Skip some safety checks
-    -h, --help                Show this help
+    --open                     Open PR in browser after creation
+    --no-auto-fix              Don't automatically fix formatting issues
+    --skip-tests               Skip running tests (not recommended)
+    --force                    Skip some safety checks
+    -h, --help                 Show this help
 
 ${YELLOW}EXAMPLES:${NC}
     # Basic PR creation
-    ./scripts/create-pr.sh -b "feat/new-feature" -t "Add awesome new feature"
+    ./scripts/create-pr.sh -t "Add awesome new feature"
     
     # PR with description
-    ./scripts/create-pr.sh -b "fix/bug-123" -t "Fix critical bug" -d "Fixes issue #123"
+    ./scripts/create-pr.sh -t "Fix critical bug" -d "Fixes issue #123"
     
     # Draft PR
-    ./scripts/create-pr.sh -b "wip/experimental" -t "WIP: Experimental feature" --draft
+    ./scripts/create-pr.sh -t "WIP: Experimental feature" --draft
 
 ${YELLOW}QUALITY CHECKS:${NC}
-    ${CHECK} Code formatting (gofmt)
-    ${CHECK} Linting (go vet)
+    ${CHECK} Code formatting (gofmt -s)
+    ${CHECK} Linting (go vet + golangci-lint if available)
     ${CHECK} Tests pass
-    ${CHECK} Commit message follows Conventional Commits
     ${CHECK} Git status clean
-    ${CHECK} Branch up to date
+    ${CHECK} Branch is up to date
 
 ${YELLOW}COMMIT MESSAGE GUIDELINES:${NC}
     Versioning is automatic and inferred from commit messages on main.
@@ -117,6 +122,10 @@ parse_args() {
                 BRANCH="$2"
                 shift 2
                 ;;
+            --base)
+                BASE_BRANCH="$2"
+                shift 2
+                ;;
             -t|--title)
                 TITLE="$2"
                 shift 2
@@ -127,6 +136,10 @@ parse_args() {
                 ;;
             --draft)
                 DRAFT=true
+                shift
+                ;;
+            --open)
+                OPEN_BROWSER=true
                 shift
                 ;;
             --no-auto-fix)
@@ -156,13 +169,22 @@ parse_args() {
 
 # Validate required arguments
 validate_args() {
-    if [[ -z "$BRANCH" ]]; then
-        print_error "Branch name is required. Use -b or --branch"
-        exit 1
-    fi
-    
     if [[ -z "$TITLE" ]]; then
-        print_error "PR title is required. Use -t or --title"
+        TITLE=$(git log -1 --pretty=%s 2>/dev/null || true)
+        if [[ -z "$TITLE" ]]; then
+            print_error "PR title is required. Use -t or --title"
+            exit 1
+        fi
+        print_info "Using latest commit subject as PR title: $TITLE"
+    fi
+
+    if [[ -z "$BRANCH" ]]; then
+        BRANCH="$CURRENT_BRANCH"
+    fi
+
+    if [[ "$BRANCH" != "$CURRENT_BRANCH" ]]; then
+        print_error "Current branch is '$CURRENT_BRANCH' but '--branch' is '$BRANCH'"
+        print_info "Switch branches or omit --branch to use the current branch"
         exit 1
     fi
 }
@@ -200,14 +222,20 @@ check_git_status() {
     # Check if we have uncommitted changes
     if [[ -n $(git status --porcelain) ]]; then
         print_warning "You have uncommitted changes"
+        CLEAN_WORKTREE=false
         if [[ "$FORCE" == "false" ]]; then
             print_info "Commit your changes first, or use --force to continue"
             exit 1
         fi
+        print_warning "Proceeding with dirty working tree (changes won't be pushed)"
     fi
     
     # Check current branch
     CURRENT_BRANCH=$(git branch --show-current)
+    if [[ -z "$CURRENT_BRANCH" ]]; then
+        print_error "Detached HEAD state. Check out a branch first"
+        exit 1
+    fi
     if [[ "$CURRENT_BRANCH" == "main" ]]; then
         print_error "Cannot create PR from main branch"
         print_info "Create a feature branch first: git checkout -b your-feature-branch"
@@ -222,20 +250,34 @@ check_and_push_branch() {
     print_step "Checking branch status..."
     
     # Check if branch exists on remote
-    if ! git ls-remote --heads origin "$CURRENT_BRANCH" | grep -q "$CURRENT_BRANCH"; then
+    if ! git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
         print_info "Branch doesn't exist on remote, will push after checks"
         NEED_PUSH=true
     else
         print_info "Branch exists on remote"
-        NEED_PUSH=false
-        
-        # Check if local is ahead of remote
-        LOCAL=$(git rev-parse HEAD)
-        REMOTE=$(git rev-parse "origin/$CURRENT_BRANCH" 2>/dev/null || echo "")
-        
-        if [[ "$LOCAL" != "$REMOTE" && -n "$REMOTE" ]]; then
+        git fetch --quiet origin "$BRANCH"
+
+        COUNTS=$(git rev-list --left-right --count "origin/$BRANCH...$BRANCH")
+        BEHIND=${COUNTS%% *}
+        AHEAD=${COUNTS##* }
+
+        if [[ "$BEHIND" -gt 0 && "$AHEAD" -gt 0 ]]; then
+            print_error "Your branch has diverged from origin/$BRANCH"
+            print_info "Please rebase or merge before creating a PR"
+            exit 1
+        fi
+
+        if [[ "$BEHIND" -gt 0 ]]; then
+            print_error "Your branch is behind origin/$BRANCH"
+            print_info "Please pull or rebase before creating a PR"
+            exit 1
+        fi
+
+        if [[ "$AHEAD" -gt 0 ]]; then
             print_info "Local branch is ahead of remote, will push updates"
             NEED_PUSH=true
+        else
+            NEED_PUSH=false
         fi
     fi
 }
@@ -245,7 +287,7 @@ format_code() {
     print_step "Checking code formatting..."
     
     # Check if code needs formatting
-    UNFORMATTED=$(gofmt -l . 2>/dev/null || true)
+    UNFORMATTED=$(gofmt -l -s . 2>/dev/null || true)
     
     if [[ -n "$UNFORMATTED" ]]; then
         print_warning "Code needs formatting:"
@@ -253,15 +295,9 @@ format_code() {
         
         if [[ "$AUTO_FIX" == "true" ]]; then
             print_step "Auto-fixing formatting..."
-            gofmt -w .
+            gofmt -w -s .
             print_success "Code formatted successfully"
-            
-            # Add formatted files to git
-            if [[ -n $(git status --porcelain) ]]; then
-                git add .
-                git commit -m "style: auto-format code with gofmt"
-                print_success "Committed formatting changes"
-            fi
+            FORMAT_CHANGED=true
         else
             print_error "Please format your code with: make fmt"
             exit 1
@@ -271,13 +307,29 @@ format_code() {
     fi
 }
 
+# Commit gofmt changes if we started clean
+commit_formatting_changes() {
+    if [[ "$FORMAT_CHANGED" == "false" ]]; then
+        return
+    fi
+
+    if [[ "$CLEAN_WORKTREE" == "false" ]]; then
+        print_error "Formatting changes applied on top of uncommitted work"
+        print_info "Please review and commit formatting changes, then rerun"
+        exit 1
+    fi
+
+    git add -u
+    git commit -m "style: gofmt"
+    print_success "Committed formatting changes"
+}
+
 # Run linting
 run_linting() {
     print_step "Running linting checks..."
     
-    # Run go vet
-    if ! go vet ./...; then
-        print_error "go vet failed"
+    if ! make lint; then
+        print_error "Linting failed"
         exit 1
     fi
     
@@ -293,7 +345,7 @@ run_tests() {
     
     print_step "Running tests..."
     
-    if ! go test ./...; then
+    if ! make test; then
         print_error "Tests failed"
         print_info "Fix the failing tests before creating PR"
         exit 1
@@ -352,23 +404,20 @@ Changes in this PR:
     fi
     
     # Create PR command
-    PR_CMD="gh pr create --title \"$TITLE\" --body \"$PR_BODY\" --base main --head $CURRENT_BRANCH"
-    
+    PR_CMD=(gh pr create --title "$TITLE" --body "$PR_BODY" --base "$BASE_BRANCH" --head "$BRANCH")
     if [[ "$DRAFT" == "true" ]]; then
-        PR_CMD="$PR_CMD --draft"
+        PR_CMD+=(--draft)
     fi
-    
+
     # Execute PR creation
-    if eval "$PR_CMD"; then
+    if "${PR_CMD[@]}"; then
         print_success "Pull request created successfully!"
         
         # Get PR URL
         PR_URL=$(gh pr view --json url --jq .url)
         print_info "PR URL: $PR_URL"
         
-        # Open PR in browser (optional)
-        read -p "Open PR in browser? [y/N]: " open_browser
-        if [[ "$open_browser" =~ ^[Yy]$ ]]; then
+        if [[ "$OPEN_BROWSER" == "true" ]]; then
             gh pr view --web
         fi
     else
@@ -383,7 +432,7 @@ show_summary() {
     
     echo -e "${GREEN}${ROCKET} Successfully created PR:${NC}"
     echo -e "  Title: $TITLE"
-    echo -e "  Branch: $CURRENT_BRANCH → main"
+    echo -e "  Branch: $BRANCH → $BASE_BRANCH"
     echo -e "  Draft: $DRAFT"
     echo ""
     
@@ -402,21 +451,23 @@ main() {
     print_header "FORGOR PR CREATION ASSISTANT"
     
     parse_args "$@"
-    validate_args
     
     # Pre-flight checks
     check_git_repo
     check_gh_cli
     check_gh_auth
     check_git_status
-    check_and_push_branch
+    validate_args
     
     # Code quality checks
     format_code
+    commit_formatting_changes
     run_linting
     run_tests
     # Version bump check removed; CI handles versioning based on Conventional Commits
     build_project
+
+    check_and_push_branch
     
     # Push and create PR
     push_branch

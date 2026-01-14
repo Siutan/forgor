@@ -157,7 +157,7 @@ create-pr: ## Create a pull request with quality checks
 		echo "❌ scripts/create-pr.sh not found"; \
 		exit 1; \
 	fi
-	@scripts/create-pr.sh $(filter-out $@,$(MAKECMDGOALS))
+	@scripts/create-pr.sh $(ARGS) $(filter-out $@,$(MAKECMDGOALS))
 
 # Allow passing arguments to create-pr
 %:

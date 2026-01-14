@@ -10,7 +10,7 @@
 ## 📑 Table of Contents
 
 - [Features](#-features)
-- [Enhanced Shell History (Recommended)](#enhanced-shell-history-recommended)
+- [Shell History (Recommended)](#shell-history-recommended)
 - [Installation](#-installation)
 - [Setup](#-setup)
   - [Initialize Configuration](#1-initialize-configuration)
@@ -47,37 +47,34 @@
 
 ---
 
-### Enhanced Shell History (Recommended)
+### Shell History (Recommended)
 
-For the best experience, `forgor` can use an enhanced shell logger that provides rich, real-time, cross-session history.
-
-This logger provides more context than native shell history:
-
-- Captures commands from all terminal sessions instantly.
-- Includes context like the working directory for each command.
-- Sanitizes sensitive arguments (e.g., passwords, API keys) automatically through a filter list.
-
-In saying this, please note that the enhanced logger is not a replacement for native shell history. and although it itself doesn't send commands to an external API, it can still be sent to LLMs so do be aware of the potential risks of any keys or secrets you might have in your history.
+`forgor` reads your shell history file (via `HISTFILE` for bash/zsh, or the default fish history file) and uses only input commands for context. It does not attempt to capture command output.
 
 You can disable history completely by setting `history: 0` in your configuration file.
 
-#### Install the Enhanced Logger
+#### Zsh: per-session history (recommended)
 
-Run the following command to install the logger script. It will automatically detect your shell (`bash`, `zsh`, or `fish`) and configure it.
-
-```bash
-curl -sL https://raw.githubusercontent.com/Siutan/forgor/main/scripts/configure-history-logger.sh | bash
-```
-
-After running, **restart your shell** to activate it. The logger does not overwrite your history file, it hooks into the `command has run` event and logs each command to the `~/.command_log` file.
-
-#### Uninstall the Logger
-
-If you need to remove the logger, a simple uninstall script is provided:
+Add this to your `.zshrc` to keep history per session and avoid cross-shell interference:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/Siutan/forgor/main/scripts/reset-history-logger.sh | bash
+# Forgor history extension - removing this will prevent the history feature from working as intended.
+# Only for interactive shells
+[[ -o interactive ]] || return
+
+SESSION_ID="$(date +%s)-$$"
+TTY_ID="$(tty | sed 's#[/ ]#_#g')"
+export HISTFILE="$HOME/.zsh_history_${TTY_ID}_${SESSION_ID}"
+
+setopt INC_APPEND_HISTORY
+unsetopt SHARE_HISTORY
+HISTSIZE=100000
+SAVEHIST=100000
 ```
+
+Restart your shell after updating `.zshrc`.
+
+If you previously installed the legacy logger, remove its snippet from your shell rc file and delete `~/.command_log` (it is no longer used).
 
 ---
 
@@ -698,4 +695,3 @@ MIT License - see [LICENSE](LICENSE) for details.
 - 🐛 **Issues**: [GitHub Issues](https://github.com/Siutan/forgor/issues)
 - 💬 **Discussions**: [GitHub Discussions](https://github.com/Siutan/forgor/discussions)
 - 📧 **Email**: [Contact the maintainers](https://github.com/Siutan/forgor#maintainers)
-

@@ -55,7 +55,7 @@ profiles:
     max_tokens: 450
 
 # This is the history configuration.
-# NOTE: You NEED the enhanced logger to use this feature. read more about the enhanced logger here: https://github.com/Siutan/forgor#enhanced-shell-history-recommended
+# History reads from your shell history file (HISTFILE for bash/zsh, default fish history file).
 history:
   max_commands: 10
   shells: ["bash", "zsh", "fish"] # you can add more shells here, or remove this line to use all shells

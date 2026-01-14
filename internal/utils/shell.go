@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 )
 
@@ -85,11 +84,21 @@ func GetShellHistoryFile(shell string) string {
 
 	switch shell {
 	case "bash":
+		if envPath := resolveHistoryFilePath(os.Getenv("HISTFILE"), homeDir); envPath != "" {
+			return envPath
+		}
 		historyPath = filepath.Join(homeDir, ".bash_history")
 	case "zsh":
+		if envPath := resolveHistoryFilePath(os.Getenv("HISTFILE"), homeDir); envPath != "" {
+			return envPath
+		}
 		historyPath = filepath.Join(homeDir, ".zsh_history")
 	case "fish":
-		historyPath = filepath.Join(homeDir, ".local", "share", "fish", "fish_history")
+		if xdgData := resolveHistoryFilePath(os.Getenv("XDG_DATA_HOME"), homeDir); xdgData != "" {
+			historyPath = filepath.Join(xdgData, "fish", "fish_history")
+		} else {
+			historyPath = filepath.Join(homeDir, ".local", "share", "fish", "fish_history")
+		}
 	default:
 		return ""
 	}
@@ -101,6 +110,28 @@ func GetShellHistoryFile(shell string) string {
 	}
 
 	return historyPath
+}
+
+func resolveHistoryFilePath(path, homeDir string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+
+	path = os.ExpandEnv(path)
+	if strings.HasPrefix(path, "~") {
+		if path == "~" {
+			path = homeDir
+		} else if strings.HasPrefix(path, "~/") {
+			path = filepath.Join(homeDir, strings.TrimPrefix(path, "~/"))
+		} else {
+			return ""
+		}
+	} else if !filepath.IsAbs(path) {
+		path = filepath.Join(homeDir, path)
+	}
+
+	return filepath.Clean(path)
 }
 
 // DetectShellFromProcess attempts to detect shell from process information
@@ -169,19 +200,12 @@ func GetEnvironmentInfo() map[string]string {
 	return info
 }
 
-// GetHistory reads history from the enhanced logger or native shell history files
+// GetHistory reads history from the shell's history file.
 func GetHistory(maxCommands int) ([]history.HistoryEntry, error) {
 	if maxCommands <= 0 {
 		return []history.HistoryEntry{}, nil
 	}
 
-	// 1. Try the enhanced logger first
-	entries, err := readFromCommandLog(maxCommands)
-	if err == nil && len(entries) > 0 {
-		return entries, nil // Logger script handles sanitization.
-	}
-
-	// 2. Fallback to native history
 	shell := GetCurrentShell()
 	commands, err := ReadShellHistory(shell, maxCommands)
 	if err != nil {
@@ -194,64 +218,6 @@ func GetHistory(maxCommands int) ([]history.HistoryEntry, error) {
 		fallbackEntries[i] = history.HistoryEntry{Command: cmd, ExitCode: -1}
 	}
 	return filterSensitiveHistory(fallbackEntries), nil
-}
-
-// readFromCommandLog reads from the enhanced logger's file.
-func readFromCommandLog(maxCommands int) ([]history.HistoryEntry, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
-	}
-
-	// Clean and validate the home directory path
-	homeDir = filepath.Clean(homeDir)
-
-	// Construct and clean the log file path
-	logFilePath := filepath.Clean(filepath.Join(homeDir, ".command_log"))
-
-	// Validate that the path is within the home directory
-	if !strings.HasPrefix(logFilePath, homeDir) {
-		return nil, fmt.Errorf("invalid log file path: potential directory traversal")
-	}
-
-	if _, err := os.Stat(logFilePath); os.IsNotExist(err) {
-		return nil, err
-	}
-
-	file, err := os.Open(logFilePath) // #nosec G304 - path is validated above
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var allEntries []history.HistoryEntry
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		parts := strings.Split(line, "|")
-		// New format: timestamp|shell|pid|session_id|tty|pwd|exit_code|full_command_line
-		if len(parts) >= 8 {
-			exitCodeStr := parts[6]
-			fullCommand := strings.TrimSpace(parts[7])
-
-			exitCode, err := strconv.Atoi(exitCodeStr)
-			if err != nil {
-				exitCode = -1 // Mark as unknown if parsing fails
-			}
-
-			if fullCommand != "" {
-				allEntries = append(allEntries, history.HistoryEntry{Command: fullCommand, ExitCode: exitCode})
-			}
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-
-	if len(allEntries) <= maxCommands {
-		return allEntries, nil
-	}
-	return allEntries[len(allEntries)-maxCommands:], nil
 }
 
 // ReadShellHistory reads the last N commands from the shell history file
